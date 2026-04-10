@@ -3,6 +3,7 @@ Filesystem data layer. Pure filesystem I/O, no HTTP.
 All pages are .md files with YAML frontmatter at any depth under TASKS_ROOT.
 A directory containing index.md is a "folder-page" and can have children.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -20,7 +21,7 @@ from .models import Page, TreeNode
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
-_LINK_RE = _re.compile(r'\[\[([^\]]+)\]\]')
+_LINK_RE = _re.compile(r"\[\[([^\]]+)\]\]")
 
 
 def _parse_date(val) -> Optional[date]:
@@ -81,7 +82,7 @@ def _parse_page(path: Path) -> Page:
         is_folder = True
     elif path.name == "index.md":
         md_path = path
-        is_folder = (path.parent != root)
+        is_folder = path.parent != root
     else:
         md_path = path
         is_folder = False
@@ -157,18 +158,21 @@ def _build_tree_children(dir_path: Path) -> List[TreeNode]:
         elif item.is_dir() and (item / "index.md").exists():
             try:
                 page = _parse_page(item / "index.md")
-                nodes.append(TreeNode(
-                    path=page.path,
-                    name=page.name,
-                    is_folder=True,
-                    children=_build_tree_children(item),
-                ))
+                nodes.append(
+                    TreeNode(
+                        path=page.path,
+                        name=page.name,
+                        is_folder=True,
+                        children=_build_tree_children(item),
+                    )
+                )
             except Exception:
                 pass
     return nodes
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def get_tree() -> List[TreeNode]:
     """Return the full navigation tree from root."""
@@ -340,22 +344,109 @@ def promote_to_folder(path: str) -> Page:
 
 
 def delete_page(path: str) -> None:
-    """Soft-delete a page (moved to .deleted/ inside TASKS_ROOT)."""
+    """Soft-delete a page (moved to .shadow/ inside TASKS_ROOT, preserving structure)."""
     abs_path = safe_resolve(path)
     if not abs_path.exists():
         raise FileNotFoundError(f"Page not found: {path}")
 
-    trash = TASKS_ROOT / ".deleted"
-    trash.mkdir(exist_ok=True)
+    shadow = TASKS_ROOT / ".shadow"
+    shadow.mkdir(exist_ok=True)
 
-    dest = trash / abs_path.name
-    if dest.exists():
-        stem = abs_path.stem if abs_path.is_file() else abs_path.name
-        suffix = abs_path.suffix if abs_path.is_file() else ""
-        ts = datetime.now().strftime("%Y%m%d%H%M%S")
-        dest = trash / f"{stem}-{ts}{suffix}"
+    # Calculate the relative path from TASKS_ROOT and mirror it in .shadow
+    rel_path = Path(path)
+    dest_base = shadow / rel_path
 
-    shutil.move(str(abs_path), str(dest))
+    # Handle naming conflicts
+    if dest_base.exists():
+        dest_base = _unique_shadow_path(dest_base)
+
+    dest_base.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(abs_path), str(dest_base))
+
+
+def _unique_shadow_path(path: Path) -> Path:
+    """Generate a unique path by appending incrementing suffix."""
+    stem = path.stem if path.suffix else path.name
+    suffix = path.suffix if path.suffix else ""
+    parent = path.parent
+    i = 1
+    while True:
+        new_path = parent / f"{stem}-{i}{suffix}"
+        if not new_path.exists():
+            return new_path
+        i += 1
+
+
+def list_shadow() -> List[dict]:
+    """List all pages in .shadow directory, preserving structure."""
+    shadow = TASKS_ROOT / ".shadow"
+    if not shadow.exists():
+        return []
+    results = []
+    for item in sorted(shadow.rglob("*")):
+        if item.name.startswith("."):
+            continue
+        if item.suffix == ".md" or (item.is_dir() and (item / "index.md").exists()):
+            md_path = item / "index.md" if item.is_dir() else item
+            rel = str(item.relative_to(shadow))
+            try:
+                page = _parse_page(md_path)
+                results.append(
+                    {
+                        "shadow_path": rel,
+                        "path": page.path,
+                        "name": page.name,
+                        "is_folder": item.is_dir(),
+                    }
+                )
+            except Exception:
+                results.append(
+                    {
+                        "shadow_path": rel,
+                        "path": None,
+                        "name": item.stem.replace("-", " ").title(),
+                        "is_folder": item.is_dir(),
+                    }
+                )
+    return results
+
+
+def restore_from_shadow(shadow_path: str) -> Page:
+    """Restore a page from .shadow back to its original location."""
+    shadow = TASKS_ROOT / ".shadow"
+    if not shadow.exists():
+        raise FileNotFoundError("No shadow directory exists")
+
+    shadow_abs = safe_resolve(f".shadow/{shadow_path}")
+    if not shadow_abs.exists():
+        raise FileNotFoundError(f"Shadow path not found: {shadow_path}")
+
+    # Determine the original location
+    rel_from_shadow = Path(shadow_path)
+    original = (
+        TASKS_ROOT / rel_from_shadow.name
+        if rel_from_shadow.name
+        else TASKS_ROOT / shadow_path
+    )
+    if shadow_abs.is_dir():
+        # For folders, the original location is sibling of .shadow
+        original = TASKS_ROOT / shadow_abs.name
+
+    # Handle conflicts
+    if original.exists():
+        stem = original.stem if original.suffix else original.name
+        suffix = original.suffix if original.suffix else ""
+        original = (
+            original.parent
+            / f"{stem}-restored-{datetime.now().strftime('%H%M%S')}{suffix}"
+        )
+
+    original.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(shadow_abs), str(original))
+
+    # Parse and return the restored page
+    md_path = original / "index.md" if original.is_dir() else original
+    return _parse_page(md_path)
 
 
 def append_to_page(path: str, text: str) -> Page:
@@ -465,6 +556,7 @@ def get_backlinks(path: str) -> List[str]:
 
 # ── Backward-compat shims for CLI ─────────────────────────────────────────────
 
+
 def parse_due_window(window: str) -> Optional[date]:
     window = window.strip().lower()
     if window in ("all", "none", ""):
@@ -480,9 +572,10 @@ def parse_due_window(window: str) -> Optional[date]:
         return today + timedelta(weeks=n)
     if unit == "m":
         month = today.month + n
-        year  = today.year + (month - 1) // 12
+        year = today.year + (month - 1) // 12
         month = ((month - 1) % 12) + 1
         import calendar
+
         day = min(today.day, calendar.monthrange(year, month)[1])
         return today.replace(year=year, month=month, day=day)
     if unit == "y":
@@ -493,7 +586,9 @@ def parse_due_window(window: str) -> Optional[date]:
     return None
 
 
-def filter_tasks(tasks: list, state: str = "all", by_priority: Optional[dict] = None) -> list:
+def filter_tasks(
+    tasks: list, state: str = "all", by_priority: Optional[dict] = None
+) -> list:
     result = tasks
     if state == "undone":
         result = [t for t in result if t.state != "done"]
@@ -542,7 +637,8 @@ def list_tasks(category: Optional[str] = None) -> list:
     """List pages, optionally under a top-level directory. Compat shim."""
     if category:
         return list_children(f"{category}/index.md") + [
-            p for p in list_children(None)
+            p
+            for p in list_children(None)
             if not p.is_folder and p.path.startswith(f"{category}/")
         ]
     # Flat list of all pages
@@ -563,12 +659,15 @@ def list_tasks(category: Optional[str] = None) -> list:
 def list_categories() -> list:
     """List top-level directories as categories. Compat shim."""
     from .models import Page
+
     result = []
     if not TASKS_ROOT.exists():
         return result
     for item in sorted(TASKS_ROOT.iterdir()):
         if item.is_dir() and not item.name.startswith("."):
-            count = sum(1 for p in list_tasks(item.name) if p.state not in (None, "done"))
+            count = sum(
+                1 for p in list_tasks(item.name) if p.state not in (None, "done")
+            )
             # Return a simple namespace-compatible dict
             result.append({"name": item.name, "task_count": count})
     return result
@@ -579,10 +678,23 @@ def get_task(path: str) -> Page:
     return get_page(path)
 
 
-def create_task(category: str, name: str, *, priority: str = "medium",
-                due: Optional[date] = None, content: str = "") -> Page:
-    return create_page(f"{category}/index.md" if (TASKS_ROOT / category / "index.md").exists()
-                       else None, name, priority=priority, due=due, content=content)
+def create_task(
+    category: str,
+    name: str,
+    *,
+    priority: str = "medium",
+    due: Optional[date] = None,
+    content: str = "",
+) -> Page:
+    return create_page(
+        f"{category}/index.md"
+        if (TASKS_ROOT / category / "index.md").exists()
+        else None,
+        name,
+        priority=priority,
+        due=due,
+        content=content,
+    )
 
 
 def update_task(path: str, **fields) -> Page:
@@ -590,7 +702,11 @@ def update_task(path: str, **fields) -> Page:
 
 
 def move_task(path: str, new_category: str) -> Page:
-    parent = f"{new_category}/index.md" if (TASKS_ROOT / new_category / "index.md").exists() else None
+    parent = (
+        f"{new_category}/index.md"
+        if (TASKS_ROOT / new_category / "index.md").exists()
+        else None
+    )
     return move_page(path, parent)
 
 

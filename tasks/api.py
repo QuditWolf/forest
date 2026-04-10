@@ -1,4 +1,5 @@
 """FastAPI app — hierarchical knowledge base API."""
+
 from __future__ import annotations
 
 import sys
@@ -20,6 +21,7 @@ STATIC_DIR = Path(__file__).parent.parent / "static"
 
 
 # ── Request / response schemas ─────────────────────────────────────────────────
+
 
 class PageCreate(BaseModel):
     name: str
@@ -53,6 +55,7 @@ class PromoteRequest(BaseModel):
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _validate_meta(state: Optional[str], priority: Optional[str]) -> None:
     if state is not None and state not in VALID_STATES:
         raise HTTPException(400, f"Invalid state. Choose: {VALID_STATES}")
@@ -61,6 +64,7 @@ def _validate_meta(state: Optional[str], priority: Optional[str]) -> None:
 
 
 # ── Tree & navigation ──────────────────────────────────────────────────────────
+
 
 @app.get("/api/tree")
 def get_tree():
@@ -84,6 +88,7 @@ def get_children(parent_path: str):
 
 
 # ── Page CRUD ──────────────────────────────────────────────────────────────────
+
 
 @app.get("/api/page/{path:path}")
 def get_page(path: str):
@@ -167,16 +172,34 @@ def append_to_page(path: str, body: AppendRequest):
 
 # ── Discovery ──────────────────────────────────────────────────────────────────
 
+
 @app.get("/api/search")
 def search_pages(q: str = ""):
     """Full-text search across all pages."""
     return store.search_pages(q)
 
 
-@app.get("/api/page/{path:path}/backlinks")
+@app.get("/api/backlinks/{path:path}")
 def get_backlinks(path: str):
     """Get paths of all pages that [[link]] to this page."""
     return store.get_backlinks(path)
+
+
+@app.get("/api/shadow")
+def list_shadow():
+    """List all deleted pages in .shadow."""
+    return store.list_shadow()
+
+
+@app.post("/api/shadow/restore")
+def restore_shadow(body: dict):
+    """Restore a page from .shadow. body = {"shadow_path": "relative/path/in/shadow"}"""
+    try:
+        return store.restore_from_shadow(body.get("shadow_path", ""))
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 # ── Static files (catch-all last) ─────────────────────────────────────────────

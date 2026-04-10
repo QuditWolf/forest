@@ -24,7 +24,7 @@ from textual.widgets import (
 
 from . import store
 from .config import VALID_PRIORITIES, VALID_STATES
-from .models import Task
+from .models import Page as Task
 
 
 # ---------------------------------------------------------------------------
