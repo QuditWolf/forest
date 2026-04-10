@@ -1,0 +1,22 @@
+[project]
+name = "tasks"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "typer",
+  "textual",
+  "python-frontmatter",
+  "pyyaml",
+  "pydantic"
+]
+
+[project.scripts]
+tasks = "tasks.cli:app"
+tasks-tui = "tasks.tui:main"
+tasks-api = "tasks.api:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

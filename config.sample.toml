@@ -1,0 +1,13 @@
+# TaskThink configuration
+# Copy this file to tasks.toml and adjust to your needs.
+# Environment variables override these values:
+#   TASKS_ROOT  — path to the knowledge base directory
+#   TASKS_HOST  — bind address for the server
+#   TASKS_PORT  — port for the server
+
+[server]
+host = "127.0.0.1"   # Use "0.0.0.0" to expose on the network
+port = 7000
+
+[tasks]
+root = "~/org/taskthink"  # All pages live here as .md files

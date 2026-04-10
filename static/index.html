@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TaskThink</title>
+<!-- Toast UI Editor -->
+<link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css">
+<style>
+:root {
+  --bg: #ffffff;
+  --bg-sidebar: #f7f7f5;
+  --bg-hover: #efefef;
+  --bg-selected: #e8e8e6;
+  --bg-card: #f9f9f8;
+  --border: #e0e0de;
+  --text: #37352f;
+  --text-muted: #9b9a97;
+  --text-light: #b0aeab;
+  --accent: #2383e2;
+  --accent-hover: #1a6fc4;
+  --danger: #e03e3e;
+  --success: #0f9d58;
+  --sidebar-width: 260px;
+  --header-height: 48px;
+  --radius: 6px;
+  --shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  height: 100vh;
+  display: grid;
+  grid-template-rows: var(--header-height) 1fr;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  overflow: hidden;
+}
+
+/* Header */
+header {
+  grid-column: 1 / -1;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  z-index: 20;
+}
+
+.logo { font-weight: 700; font-size: 15px; letter-spacing: -0.3px; white-space: nowrap; }
+
+.search-box { flex: 1; max-width: 380px; position: relative; }
+.search-box input {
+  width: 100%; padding: 6px 12px 6px 32px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--bg); font-size: 13px;
+  color: var(--text); outline: none; transition: border-color .15s;
+}
+.search-box input:focus { border-color: var(--accent); }
+.search-box .si { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 13px; pointer-events: none; }
+
+.header-actions { margin-left: auto; display: flex; gap: 8px; }
+
+.btn {
+  padding: 6px 12px; border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font-size: 13px; cursor: pointer;
+  transition: background .12s, border-color .12s; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 5px; font-family: inherit;
+}
+.btn:hover { background: var(--bg-hover); border-color: #ccc; }
+.btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn-danger { color: var(--danger); }
+.btn-danger:hover { background: #fff0f0; border-color: var(--danger); }
+.btn-ghost { border-color: transparent; background: transparent; }
+.btn-ghost:hover { background: var(--bg-hover); border-color: var(--border); }
+
+/* Sidebar */
+#sidebar {
+  background: var(--bg-sidebar); border-right: 1px solid var(--border);
+  overflow-y: auto; padding: 8px 0; display: flex; flex-direction: column;
+}
+
+.sidebar-label { padding: 4px 16px; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
+
+.tree-item {
+  display: flex; align-items: center; gap: 4px; padding: 3px 8px 3px 0;
+  cursor: pointer; border-radius: 4px; margin: 1px 6px; transition: background .1s;
+}
+.tree-item:hover { background: var(--bg-hover); }
+.tree-item.selected { background: var(--bg-selected); }
+
+.tree-toggle {
+  width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; color: var(--text-muted); font-size: 10px; border-radius: 3px;
+  transition: transform .15s; cursor: pointer;
+}
+.tree-toggle:hover { color: var(--text); }
+.tree-toggle.open { transform: rotate(90deg); }
+.tree-toggle.leaf { color: transparent; pointer-events: none; }
+.tree-icon { font-size: 13px; flex-shrink: 0; }
+.tree-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.tree-children { display: none; }
+.tree-children.open { display: block; }
+
+/* Main */
+#main { overflow-y: auto; display: flex; flex-direction: column; }
+
+.empty-state {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; color: var(--text-muted); gap: 12px;
+}
+.empty-state h2 { font-size: 20px; color: var(--text); }
+
+/* Breadcrumb */
+.breadcrumb {
+  padding: 10px 32px; display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.bc-item { cursor: pointer; }
+.bc-item:hover { color: var(--accent); text-decoration: underline; }
+.bc-sep { color: var(--text-light); }
+
+/* Page header */
+.page-header { padding: 24px 32px 12px; flex-shrink: 0; }
+.page-title-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.page-title {
+  flex: 1; font-size: 28px; font-weight: 700; line-height: 1.2;
+  outline: none; border: none; background: transparent; color: var(--text);
+  font-family: inherit; resize: none; overflow: hidden; min-height: 36px;
+}
+.page-title::placeholder { color: var(--text-light); }
+.page-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+
+/* Meta bar */
+.meta-bar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.meta-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px;
+  border-radius: 20px; font-size: 12px; border: 1px solid var(--border);
+  background: var(--bg); cursor: pointer; transition: background .1s;
+}
+.meta-chip:hover { background: var(--bg-hover); }
+.meta-chip select {
+  border: none; background: transparent; font-size: 12px; color: inherit;
+  cursor: pointer; outline: none; padding: 0; font-family: inherit;
+}
+.meta-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+/* Editor / Viewer area */
+.editor-area { flex: 1; padding: 0 32px 16px; display: flex; flex-direction: column; min-height: 0; }
+
+#viewer-content {
+  min-height: 160px; padding: 8px 0; line-height: 1.7; font-size: 15px;
+  color: var(--text); cursor: text;
+}
+/* Viewer typography */
+#viewer-content h1 { font-size: 22px; font-weight: 700; margin: 20px 0 8px; }
+#viewer-content h2 { font-size: 18px; font-weight: 600; margin: 18px 0 6px; }
+#viewer-content h3 { font-size: 15px; font-weight: 600; margin: 14px 0 4px; }
+#viewer-content p { margin: 8px 0; }
+#viewer-content ul, #viewer-content ol { padding-left: 24px; margin: 8px 0; }
+#viewer-content li { margin: 3px 0; }
+#viewer-content code { background: #f0f0ef; border-radius: 3px; padding: 1px 5px; font-size: 13px; }
+#viewer-content pre { background: #f0f0ef; border-radius: var(--radius); padding: 12px 16px; overflow-x: auto; margin: 12px 0; }
+#viewer-content pre code { background: none; padding: 0; }
+#viewer-content blockquote { border-left: 3px solid var(--border); padding-left: 12px; color: var(--text-muted); margin: 8px 0; }
+#viewer-content table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+#viewer-content th, #viewer-content td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+#viewer-content th { background: var(--bg-card); font-weight: 600; }
+#viewer-content a { color: var(--accent); text-decoration: none; }
+#viewer-content a:hover { text-decoration: underline; }
+#viewer-content a.wiki-link { border-bottom: 1px dashed var(--accent); }
+#viewer-content img { max-width: 100%; border-radius: var(--radius); }
+#viewer-content hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+.mermaid-block { margin: 12px 0; text-align: center; }
+.mermaid-block svg { max-width: 100%; }
+
+#editor-container { display: none; flex: 1; min-height: 300px; }
+#editor-container .toastui-editor-defaultUI { border: 1px solid var(--border); border-radius: var(--radius); }
+
+.save-ind { font-size: 12px; color: var(--text-muted); min-height: 20px; }
+.save-ind.saving { color: var(--accent); }
+.save-ind.saved { color: var(--success); }
+.save-ind.error { color: var(--danger); }
+
+/* Footer */
+.page-footer { padding: 0 32px 32px; flex-shrink: 0; }
+.footer-sec { margin-top: 24px; }
+.footer-sec-title { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+
+.subpages-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.subpage-card {
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  cursor: pointer; transition: box-shadow .12s, border-color .12s; background: var(--bg-card);
+}
+.subpage-card:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+.subpage-card-name { font-size: 13px; font-weight: 500; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subpage-card-meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 6px; }
+
+.add-sub-btn {
+  padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius);
+  cursor: pointer; color: var(--text-muted); font-size: 13px; text-align: center;
+  transition: border-color .12s, color .12s, background .12s; background: transparent;
+  font-family: inherit;
+}
+.add-sub-btn:hover { border-color: var(--accent); color: var(--accent); background: #f0f7ff; }
+
+.backlinks-list { display: flex; flex-direction: column; gap: 4px; }
+.backlink-item {
+  display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 4px;
+  cursor: pointer; font-size: 13px; color: var(--accent); transition: background .1s;
+}
+.backlink-item:hover { background: var(--bg-hover); }
+
+/* Modals */
+.overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 100;
+  display: none; align-items: flex-start; justify-content: center; padding-top: 80px;
+}
+.overlay.open { display: flex; }
+.modal {
+  background: var(--bg); border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,.18);
+  width: 500px; max-width: 95vw; overflow: hidden;
+}
+.modal-hdr {
+  padding: 16px 20px 12px; display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+.modal-title { font-weight: 600; font-size: 15px; }
+.modal-x { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 18px; line-height: 1; }
+.modal-x:hover { color: var(--text); }
+.modal-body { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 12px; }
+
+.fl { font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 4px; }
+.fi {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: 14px; color: var(--text); background: var(--bg); outline: none; font-family: inherit;
+}
+.fi:focus { border-color: var(--accent); }
+.fs {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: 14px; color: var(--text); background: var(--bg); outline: none; font-family: inherit; cursor: pointer;
+}
+
+.cap-mode { display: flex; gap: 8px; }
+.cap-btn {
+  flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); cursor: pointer; font-size: 13px; text-align: center;
+  transition: background .1s, border-color .1s; font-family: inherit;
+}
+.cap-btn.active { border-color: var(--accent); background: #f0f7ff; color: var(--accent); font-weight: 500; }
+
+.target-results { max-height: 180px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); display: none; }
+.target-results.open { display: block; }
+.tr-item { padding: 8px 12px; cursor: pointer; font-size: 13px; transition: background .1s; }
+.tr-item:hover { background: var(--bg-hover); }
+.tr-path { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+.search-results { max-height: 400px; overflow-y: auto; }
+.sr { padding: 10px 12px; border-radius: 4px; cursor: pointer; transition: background .1s; }
+.sr:hover { background: var(--bg-hover); }
+.sr-name { font-weight: 500; font-size: 13px; }
+.sr-path { font-size: 11px; color: var(--text-muted); }
+.sr-snip { font-size: 12px; color: var(--text-muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+.loading { color: var(--text-muted); font-size: 13px; padding: 16px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">📋 TaskThink</div>
+  <div class="search-box">
+    <span class="si">⌕</span>
+    <input type="text" id="search-input" placeholder="Search… (Ctrl+/)" autocomplete="off">
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-ghost" onclick="openCapture()" title="Ctrl+K">⚡ Capture</button>
+    <button class="btn btn-primary" onclick="openNewPage(null)">+ New Page</button>
+  </div>
+</header>
+
+<div id="sidebar">
+  <div class="sidebar-label">Pages</div>
+  <div id="tree-root"><div class="loading">Loading…</div></div>
+</div>
+
+<div id="main">
+  <div id="empty-state" class="empty-state">
+    <div style="font-size:48px">📋</div>
+    <h2>TaskThink</h2>
+    <p>Your hierarchical knowledge base</p>
+    <button class="btn btn-primary" onclick="openNewPage(null)">+ Create first page</button>
+  </div>
+
+  <div id="page-view" style="display:none;flex-direction:column;flex:1;min-height:0;">
+    <div class="breadcrumb" id="breadcrumb"></div>
+    <div class="page-header">
+      <div class="page-title-row">
+        <textarea id="page-title" class="page-title" placeholder="Untitled" rows="1"></textarea>
+        <div class="page-actions">
+          <span class="save-ind" id="save-ind"></span>
+          <button class="btn btn-ghost" id="edit-btn" onclick="toggleEdit()">Edit</button>
+          <button class="btn btn-ghost" id="promote-btn" onclick="doPromote()" title="Make into folder" style="display:none">⊞</button>
+          <button class="btn btn-danger btn-ghost" onclick="doDelete()">Delete</button>
+        </div>
+      </div>
+      <div class="meta-bar" id="meta-bar"></div>
+    </div>
+    <div class="editor-area">
+      <div id="viewer-container">
+        <div id="viewer-content" onclick="handleViewClick(event)"></div>
+      </div>
+      <div id="editor-container"></div>
+      <div class="save-ind" id="save-ind2"></div>
+    </div>
+    <div class="page-footer" id="page-footer"></div>
+  </div>
+</div>
+
+<!-- Quick Capture -->
+<div class="overlay" id="cap-overlay" onclick="if(event.target===this)closeCapture()">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">⚡ Quick Capture</div>
+      <button class="modal-x" onclick="closeCapture()">×</button>
+    </div>
+    <div class="modal-body">
+      <div><div class="fl">Title / Note</div><input type="text" class="fi" id="cap-title" placeholder="What's on your mind?"></div>
+      <div>
+        <div class="fl">Under page (leave empty for root)</div>
+        <input type="text" class="fi" id="cap-target-q" placeholder="Search pages…" autocomplete="off">
+        <div class="target-results" id="cap-target-list"></div>
+        <input type="hidden" id="cap-target-path">
+      </div>
+      <div class="cap-mode">
+        <button class="cap-btn active" id="capmode-page" onclick="setCapMode('page')">New child page</button>
+        <button class="cap-btn" id="capmode-append" onclick="setCapMode('append')">Append note</button>
+      </div>
+      <button class="btn btn-primary" style="align-self:flex-end" onclick="submitCapture()">Capture →</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Page Modal -->
+<div class="overlay" id="newpage-overlay" onclick="if(event.target===this)closeNewPage()">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title" id="newpage-title">New Page</div>
+      <button class="modal-x" onclick="closeNewPage()">×</button>
+    </div>
+    <div class="modal-body">
+      <div><div class="fl">Page name</div><input type="text" class="fi" id="np-name" placeholder="Enter name…"></div>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1"><div class="fl">State</div>
+          <select class="fs" id="np-state">
+            <option value="">None</option><option value="todo">Todo</option>
+            <option value="in-progress">In Progress</option><option value="blocked">Blocked</option>
+            <option value="waiting">Waiting</option><option value="done">Done</option>
+          </select></div>
+        <div style="flex:1"><div class="fl">Priority</div>
+          <select class="fs" id="np-priority">
+            <option value="">None</option><option value="high">High</option>
+            <option value="medium">Medium</option><option value="low">Low</option>
+          </select></div>
+      </div>
+      <div><div class="fl">Due date</div><input type="date" class="fi" id="np-due"></div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="np-folder"> Create as folder (allows child pages)
+      </label>
+      <button class="btn btn-primary" style="align-self:flex-end" onclick="submitNewPage()">Create →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Search Modal -->
+<div class="overlay" id="search-overlay" onclick="if(event.target===this)closeSearch()">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">Search</div>
+      <button class="modal-x" onclick="closeSearch()">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="text" class="fi" id="search-modal-q" placeholder="Search all pages…" oninput="doSearch(this.value)">
+      <div class="search-results" id="search-results-list"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
+
+// ── State ──────────────────────────────────────────────────────────────────────
+const S = {
+  tree: [], allPages: [],
+  currentPath: null, currentPage: null,
+  isEditing: false, isDirty: false,
+  editor: null, saveTimer: null,
+  expanded: new Set(JSON.parse(localStorage.getItem('tt-exp') || '[]')),
+  capMode: 'page', capTarget: null,
+  npParent: null,
+};
+
+// ── API ───────────────────────────────────────────────────────────────────────
+const api = {
+  async get(p) { const r = await fetch(p); if (!r.ok) throw new Error(await r.text()); return r.json(); },
+  async post(p, b) { const r = await fetch(p, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}); if (!r.ok) throw new Error(await r.text()); return r.status===204?null:r.json(); },
+  async patch(p, b) { const r = await fetch(p, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}); if (!r.ok) throw new Error(await r.text()); return r.json(); },
+  async del(p) { const r = await fetch(p, {method:'DELETE'}); if (!r.ok) throw new Error(await r.text()); },
+};
+
+// ── Tree ──────────────────────────────────────────────────────────────────────
+async function loadTree() {
+  try {
+    S.tree = await api.get('/api/tree');
+    S.allPages = flatTree(S.tree);
+    renderTree();
+  } catch(e) { document.getElementById('tree-root').innerHTML = '<div class="loading">Error loading</div>'; }
+}
+
+function flatTree(nodes, out=[]) { for(const n of nodes){out.push(n);if(n.children)flatTree(n.children,out);} return out; }
+
+function renderTree() {
+  const root = document.getElementById('tree-root');
+  root.innerHTML = '';
+  if (!S.tree.length) { root.innerHTML = '<div class="loading" style="font-size:12px;padding:12px 16px">No pages yet</div>'; return; }
+  renderNodes(S.tree, root, 0);
+}
+
+function renderNodes(nodes, el, depth) { for(const n of nodes) el.appendChild(buildNode(n, depth)); }
+
+function buildNode(node, depth) {
+  const wrap = document.createElement('div');
+  const item = document.createElement('div');
+  item.className = 'tree-item' + (node.path===S.currentPath?' selected':'');
+  item.style.paddingLeft = (8 + depth*16) + 'px';
+
+  const tog = document.createElement('div');
+  tog.className = 'tree-toggle' + (node.is_folder?'':' leaf') + (node.is_folder&&S.expanded.has(node.path)?' open':'');
+  tog.textContent = '▶';
+  if (node.is_folder) tog.addEventListener('click', e => { e.stopPropagation(); toggleExpand(node.path); });
+
+  const icon = document.createElement('span');
+  icon.className = 'tree-icon';
+  icon.textContent = node.is_folder ? '📁' : '📄';
+
+  const label = document.createElement('span');
+  label.className = 'tree-label';
+  label.textContent = node.name;
+
+  item.append(tog, icon, label);
+  item.addEventListener('click', () => navTo(node.path));
+  wrap.appendChild(item);
+
+  if (node.is_folder && node.children?.length) {
+    const ch = document.createElement('div');
+    ch.className = 'tree-children' + (S.expanded.has(node.path)?' open':'');
+    renderNodes(node.children, ch, depth+1);
+    wrap.appendChild(ch);
+  }
+  return wrap;
+}
+
+function toggleExpand(path) {
+  S.expanded.has(path) ? S.expanded.delete(path) : S.expanded.add(path);
+  localStorage.setItem('tt-exp', JSON.stringify([...S.expanded]));
+  renderTree();
+}
+
+function expandAncestors(path) {
+  const parts = path.split('/');
+  let changed = false;
+  for (let i=1; i<parts.length; i++) {
+    const anc = parts.slice(0,i).join('/') + '/index.md';
+    if (!S.expanded.has(anc)) { S.expanded.add(anc); changed=true; }
+  }
+  if (changed) { localStorage.setItem('tt-exp', JSON.stringify([...S.expanded])); renderTree(); }
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+async function navTo(path) {
+  if (S.isEditing) await save();
+  try {
+    const page = await api.get('/api/page/'+path);
+    S.currentPath = path; S.currentPage = page; S.isEditing = false;
+    showPage(page); renderTree(); expandAncestors(path);
+  } catch(e) { alert('Failed to load: '+e.message); }
+}
+
+// ── Page render ───────────────────────────────────────────────────────────────
+function showPage(page) {
+  document.getElementById('empty-state').style.display = 'none';
+  const pv = document.getElementById('page-view');
+  pv.style.display = 'flex';
+
+  const te = document.getElementById('page-title');
+  te.value = page.name; resizeTitle(te);
+  te.oninput = () => { resizeTitle(te); scheduleSave(); };
+
+  renderBreadcrumb(page);
+  renderMeta(page);
+  document.getElementById('promote-btn').style.display = page.is_folder ? 'none' : '';
+  document.getElementById('edit-btn').textContent = 'Edit';
+  S.isEditing = false;
+  document.getElementById('viewer-container').style.display = '';
+  document.getElementById('editor-container').style.display = 'none';
+  renderViewer(page.content || '');
+  renderFooter(page);
+  setSaveInd('');
+}
+
+function renderBreadcrumb(page) {
+  const bc = document.getElementById('breadcrumb');
+  bc.innerHTML = '';
+  const crumbs = makeCrumbs(page);
+  crumbs.forEach((c, i) => {
+    if (i>0) { const s=document.createElement('span'); s.className='bc-sep'; s.textContent='/'; bc.appendChild(s); }
+    const el = document.createElement('span'); el.className='bc-item'; el.textContent=c.name;
+    if (i<crumbs.length-1) el.addEventListener('click', ()=>navTo(c.path));
+    bc.appendChild(el);
+  });
+}
+
+function makeCrumbs(page) {
+  const crumbs = [{path:page.path, name:page.name}];
+  let pp = page.parent_path;
+  while (pp) {
+    const n = S.allPages.find(p=>p.path===pp);
+    if (!n) break;
+    crumbs.unshift({path:n.path, name:n.name});
+    // find parent_path of n — need to load from allPages
+    // allPages only has tree nodes (name, path, is_folder, children) — no parent_path
+    // So we compute it from path
+    const parts = n.path.split('/');
+    if (parts.length<=2) { pp=null; break; }
+    pp = parts.slice(0,parts.length-2).join('/') + '/index.md';
+  }
+  return crumbs;
+}
+
+function renderMeta(page) {
+  const bar = document.getElementById('meta-bar');
+  bar.innerHTML = '';
+
+  // State
+  const sc = mkChip(); const sd = mkDot(stateClr(page.state));
+  const ss = mkSel([['','No state'],['todo','Todo'],['in-progress','In Progress'],['blocked','Blocked'],['waiting','Waiting'],['done','Done']], page.state||'');
+  ss.addEventListener('change', async () => {
+    try { const u=await api.patch('/api/page/'+S.currentPath,{state:ss.value||null}); S.currentPage=u; sd.style.background=stateClr(ss.value); } catch(e){alert(e.message);}
+  });
+  sc.append(sd,ss); bar.appendChild(sc);
+
+  // Priority
+  const pc = mkChip(); const pd = mkDot(priClr(page.priority));
+  const ps = mkSel([['','No priority'],['high','High'],['medium','Medium'],['low','Low']], page.priority||'');
+  ps.addEventListener('change', async () => {
+    try { const u=await api.patch('/api/page/'+S.currentPath,{priority:ps.value||null}); S.currentPage=u; pd.style.background=priClr(ps.value); } catch(e){alert(e.message);}
+  });
+  pc.append(pd,ps); bar.appendChild(pc);
+
+  // Due
+  const dc = mkChip();
+  const dl = document.createElement('span'); dl.textContent='📅'; dl.style.fontSize='11px';
+  const di = document.createElement('input'); di.type='date'; di.value=page.due||'';
+  di.style.cssText='border:none;background:transparent;font-size:12px;cursor:pointer;outline:none;width:110px;font-family:inherit';
+  di.addEventListener('change', async () => {
+    try { await api.patch('/api/page/'+S.currentPath,{due:di.value||null}); } catch(e){alert(e.message);}
+  });
+  dc.append(dl,di); bar.appendChild(dc);
+}
+
+function mkChip() { const d=document.createElement('div'); d.className='meta-chip'; return d; }
+function mkDot(c) { const d=document.createElement('div'); d.className='meta-dot'; d.style.background=c; return d; }
+function mkSel(opts, val) {
+  const s=document.createElement('select');
+  s.style.cssText='border:none;background:transparent;font-size:12px;cursor:pointer;outline:none;font-family:inherit';
+  opts.forEach(([v,l])=>{ const o=document.createElement('option'); o.value=v; o.textContent=l; if(v===val)o.selected=true; s.appendChild(o); });
+  return s;
+}
+
+function stateClr(s) { return {todo:'#9b9a97','in-progress':'#2383e2',blocked:'#e03e3e',waiting:'#d9a84e',done:'#0f9d58'}[s]||'#ddd'; }
+function priClr(p) { return {high:'#e03e3e',medium:'#d9a84e',low:'#9b9a97'}[p]||'#ddd'; }
+
+// ── Viewer ────────────────────────────────────────────────────────────────────
+let _viewer = null;
+
+function renderViewer(md) {
+  const el = document.getElementById('viewer-content');
+  el.innerHTML = '';
+  if (!md.trim()) {
+    el.innerHTML = '<p style="color:var(--text-muted);font-style:italic">Empty page. Click to edit.</p>';
+    return;
+  }
+  if (_viewer) { try { _viewer.destroy(); } catch(e){} _viewer=null; }
+  _viewer = toastui.Editor.factory({
+    el, viewer: true, initialValue: md,
+    customHTMLRenderer: {
+      codeBlock(node) {
+        if ((node.info||'').trim().toLowerCase()==='mermaid') {
+          const id = 'mmd-'+Math.random().toString(36).slice(2,8);
+          return [
+            {type:'openTag',tagName:'div',attributes:{class:'mermaid-block',id}},
+            {type:'text',content:node.literal},
+            {type:'closeTag',tagName:'div'},
+          ];
+        }
+      }
+    }
+  });
+  setTimeout(() => { renderMermaid(el); processWikiLinks(el); }, 60);
+}
+
+async function renderMermaid(container) {
+  for (const b of container.querySelectorAll('.mermaid-block')) {
+    try {
+      const {svg} = await mermaid.render(b.id+'-s', b.textContent.trim());
+      b.innerHTML = svg;
+    } catch(e) { b.innerHTML = `<pre style="color:var(--danger);font-size:12px">Mermaid error: ${e.message}</pre>`; }
+  }
+}
+
+function processWikiLinks(container) {
+  const walk = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  let n;
+  while ((n=walk.nextNode())) if (n.textContent.includes('[[')) nodes.push(n);
+  for (const tn of nodes) {
+    const parts = tn.textContent.split(/(\[\[[^\]]+\]\])/g);
+    if (parts.length===1) continue;
+    const frag = document.createDocumentFragment();
+    for (const part of parts) {
+      const m = part.match(/^\[\[([^\]]+)\]\]$/);
+      if (m) {
+        const a = document.createElement('a');
+        a.href='#'; a.className='wiki-link';
+        a.textContent = m[1].split('/').pop().replace(/\.md$/,'').replace(/-/g,' ');
+        a.title = m[1];
+        a.addEventListener('click', e => { e.preventDefault(); resolveAndNav(m[1]); });
+        frag.appendChild(a);
+      } else frag.appendChild(document.createTextNode(part));
+    }
+    tn.replaceWith(frag);
+  }
+}
+
+async function resolveAndNav(ref) {
+  const hit = S.allPages.find(p =>
+    p.path===ref || p.path===ref+'.md' || p.path===ref+'/index.md' ||
+    p.name.toLowerCase()===ref.toLowerCase()
+  );
+  if (hit) await navTo(hit.path);
+  else alert('Page not found: '+ref);
+}
+
+function handleViewClick(e) {
+  if (['A','BUTTON','INPUT','SELECT'].includes(e.target.tagName)) return;
+  if (!S.isEditing) enterEdit();
+}
+
+// ── Editor ────────────────────────────────────────────────────────────────────
+function enterEdit() {
+  if (!S.currentPage) return;
+  S.isEditing = true;
+  document.getElementById('viewer-container').style.display = 'none';
+  const ec = document.getElementById('editor-container');
+  ec.style.display = ''; ec.innerHTML = '';
+  document.getElementById('edit-btn').textContent = 'Done';
+  if (S.editor) { try{S.editor.destroy();}catch(e){} S.editor=null; }
+  S.editor = new toastui.Editor({
+    el: ec, height: '500px', initialEditType: 'wysiwyg',
+    initialValue: S.currentPage.content || '',
+    toolbarItems: [
+      ['heading','bold','italic','strike'],
+      ['hr','quote'],['ul','ol','task'],
+      ['table','image','link'],['code','codeblock'],
+    ],
+    customHTMLRenderer: {
+      codeBlock(node) {
+        if ((node.info||'').trim().toLowerCase()==='mermaid') {
+          const id='mmd-e-'+Math.random().toString(36).slice(2,8);
+          return [
+            {type:'openTag',tagName:'div',attributes:{class:'mermaid-block',id}},
+            {type:'text',content:node.literal},
+            {type:'closeTag',tagName:'div'},
+          ];
+        }
+      }
+    }
+  });
+  S.editor.on('change', () => scheduleSave());
+}
+
+function exitEdit() {
+  if (!S.isEditing || !S.editor) return;
+  const md = S.editor.getMarkdown();
+  S.currentPage.content = md;
+  S.isEditing = false;
+  document.getElementById('viewer-container').style.display = '';
+  document.getElementById('editor-container').style.display = 'none';
+  document.getElementById('edit-btn').textContent = 'Edit';
+  renderViewer(md);
+}
+
+function toggleEdit() {
+  if (S.isEditing) save().then(()=>exitEdit());
+  else enterEdit();
+}
+
+// ── Save ──────────────────────────────────────────────────────────────────────
+function scheduleSave() {
+  S.isDirty = true; setSaveInd('saving','Saving…');
+  clearTimeout(S.saveTimer);
+  S.saveTimer = setTimeout(save, 1500);
+}
+
+async function save() {
+  if (!S.currentPath || !S.isDirty) return;
+  const name = document.getElementById('page-title').value.trim() || 'Untitled';
+  const content = S.editor ? S.editor.getMarkdown() : (S.currentPage?.content||'');
+  try {
+    const u = await api.patch('/api/page/'+S.currentPath, {name, content});
+    S.currentPage = u; S.isDirty = false;
+    setSaveInd('saved','Saved'); setTimeout(()=>setSaveInd(''),2000);
+    await loadTree();
+  } catch(e) { setSaveInd('error','Save failed'); }
+}
+
+function setSaveInd(cls, text='') {
+  ['save-ind','save-ind2'].forEach(id => {
+    const el=document.getElementById(id); if(!el)return;
+    el.className='save-ind'+(cls?' '+cls:''); el.textContent=text;
+  });
+}
+
+function resizeTitle(el) { el.style.height='auto'; el.style.height=el.scrollHeight+'px'; }
+
+// ── Footer ────────────────────────────────────────────────────────────────────
+async function renderFooter(page) {
+  const footer = document.getElementById('page-footer');
+  footer.innerHTML = '';
+
+  // Subpages
+  const ss = document.createElement('div'); ss.className='footer-sec';
+  const st = document.createElement('div'); st.className='footer-sec-title'; st.textContent='Sub-pages';
+  ss.appendChild(st);
+  const grid = document.createElement('div'); grid.className='subpages-grid';
+
+  if (page.children?.length) {
+    for (const cp of page.children) {
+      try {
+        const child = await api.get('/api/page/'+cp);
+        const card = document.createElement('div'); card.className='subpage-card';
+        card.innerHTML = `<div class="subpage-card-name">${child.name}</div>
+          <div class="subpage-card-meta">
+            ${child.state?`<span style="color:${stateClr(child.state)}">${child.state}</span>`:''}
+            ${child.priority?`<span style="color:${priClr(child.priority)}">${child.priority}</span>`:''}
+          </div>`;
+        card.addEventListener('click', ()=>navTo(child.path));
+        grid.appendChild(card);
+      } catch(e) {}
+    }
+  }
+
+  const addBtn = document.createElement('button'); addBtn.className='add-sub-btn';
+  addBtn.textContent='+ New sub-page';
+  addBtn.addEventListener('click', ()=>openNewPage(page.path));
+  grid.appendChild(addBtn);
+  ss.appendChild(grid); footer.appendChild(ss);
+
+  // Backlinks
+  const bs = document.createElement('div'); bs.className='footer-sec';
+  const bt = document.createElement('div'); bt.className='footer-sec-title'; bt.textContent='Backlinks';
+  bs.appendChild(bt);
+  const bl = document.createElement('div'); bl.className='backlinks-list';
+  bl.innerHTML='<span class="loading" style="padding:0">Loading…</span>';
+  bs.appendChild(bl); footer.appendChild(bs);
+
+  api.get('/api/page/'+page.path+'/backlinks').then(links => {
+    bl.innerHTML = '';
+    if (!links.length) { bl.innerHTML='<span style="color:var(--text-muted);font-size:13px">No backlinks yet</span>'; return; }
+    for (const lp of links) {
+      const item = document.createElement('div'); item.className='backlink-item';
+      const n = S.allPages.find(p=>p.path===lp);
+      item.textContent='← '+(n?n.name:lp); item.title=lp;
+      item.addEventListener('click',()=>navTo(lp));
+      bl.appendChild(item);
+    }
+  }).catch(()=>{ bl.textContent='Failed to load backlinks'; });
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────────
+async function doDelete() {
+  if (!S.currentPath) return;
+  if (!confirm(`Delete "${S.currentPage.name}"? (moves to .deleted/)`)) return;
+  try {
+    await api.del('/api/page/'+S.currentPath);
+    S.currentPath=null; S.currentPage=null; S.isEditing=false;
+    document.getElementById('empty-state').style.display='';
+    document.getElementById('page-view').style.display='none';
+    await loadTree();
+  } catch(e) { alert('Delete failed: '+e.message); }
+}
+
+async function doPromote() {
+  if (!S.currentPage || S.currentPage.is_folder) return;
+  if (!confirm(`Convert "${S.currentPage.name}" to a folder so it can have child pages?`)) return;
+  try {
+    const u = await api.post('/api/page/'+S.currentPath+'/promote', {});
+    S.currentPath=u.path; S.currentPage=u;
+    await loadTree(); showPage(u);
+  } catch(e) { alert('Promote failed: '+e.message); }
+}
+
+// ── New Page Modal ────────────────────────────────────────────────────────────
+function openNewPage(parentPath) {
+  S.npParent = parentPath;
+  const pname = parentPath ? S.allPages.find(p=>p.path===parentPath)?.name||parentPath : null;
+  document.getElementById('newpage-title').textContent = pname ? `New sub-page under "${pname}"` : 'New Page';
+  ['np-name','np-due'].forEach(id=>document.getElementById(id).value='');
+  ['np-state','np-priority'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('np-folder').checked = false;
+  document.getElementById('newpage-overlay').classList.add('open');
+  setTimeout(()=>document.getElementById('np-name').focus(), 50);
+}
+
+function closeNewPage() { document.getElementById('newpage-overlay').classList.remove('open'); }
+
+async function submitNewPage() {
+  const name = document.getElementById('np-name').value.trim();
+  if (!name) { alert('Enter a name'); return; }
+  try {
+    const p = await api.post('/api/pages', {
+      name, parent_path: S.npParent,
+      as_folder: document.getElementById('np-folder').checked,
+      state: document.getElementById('np-state').value||null,
+      priority: document.getElementById('np-priority').value||null,
+      due: document.getElementById('np-due').value||null,
+    });
+    closeNewPage();
+    if (S.npParent) { S.expanded.add(S.npParent); localStorage.setItem('tt-exp',JSON.stringify([...S.expanded])); }
+    await loadTree();
+    await navTo(p.path);
+  } catch(e) { alert('Create failed: '+e.message); }
+}
+
+// ── Quick Capture ─────────────────────────────────────────────────────────────
+function openCapture() {
+  S.capMode='page'; S.capTarget=S.currentPath;
+  document.getElementById('cap-title').value='';
+  const qi=document.getElementById('cap-target-q');
+  qi.value=S.currentPage?S.currentPage.name:'';
+  document.getElementById('cap-target-path').value=S.currentPath||'';
+  document.getElementById('cap-target-list').classList.remove('open');
+  updateCapBtns();
+  document.getElementById('cap-overlay').classList.add('open');
+  setTimeout(()=>document.getElementById('cap-title').focus(), 50);
+}
+
+function closeCapture() { document.getElementById('cap-overlay').classList.remove('open'); }
+function setCapMode(m) { S.capMode=m; updateCapBtns(); }
+function updateCapBtns() {
+  document.getElementById('capmode-page').classList.toggle('active', S.capMode==='page');
+  document.getElementById('capmode-append').classList.toggle('active', S.capMode==='append');
+}
+
+document.getElementById('cap-target-q').addEventListener('input', function() {
+  const q=this.value.toLowerCase(), list=document.getElementById('cap-target-list');
+  if (!q) { list.classList.remove('open'); document.getElementById('cap-target-path').value=''; return; }
+  const matches = S.allPages.filter(p=>p.name.toLowerCase().includes(q)||p.path.toLowerCase().includes(q)).slice(0,8);
+  list.innerHTML='';
+  if (matches.length) {
+    matches.forEach(p=>{
+      const el=document.createElement('div'); el.className='tr-item';
+      el.innerHTML=`<div>${p.name}</div><div class="tr-path">${p.path}</div>`;
+      el.addEventListener('click',()=>{
+        document.getElementById('cap-target-q').value=p.name;
+        document.getElementById('cap-target-path').value=p.path;
+        S.capTarget=p.path; list.classList.remove('open');
+      });
+      list.appendChild(el);
+    });
+    list.classList.add('open');
+  } else list.classList.remove('open');
+});
+
+async function submitCapture() {
+  const title=document.getElementById('cap-title').value.trim();
+  if (!title) { alert('Enter a title or note'); return; }
+  const target=document.getElementById('cap-target-path').value||null;
+  try {
+    if (S.capMode==='append' && target) {
+      await api.post('/api/page/'+target+'/append', {text:title});
+      if (S.currentPath===target) { const u=await api.get('/api/page/'+target); S.currentPage=u; renderViewer(u.content); }
+    } else {
+      const p=await api.post('/api/pages', {name:title, parent_path:target});
+      if (target) { S.expanded.add(target); localStorage.setItem('tt-exp',JSON.stringify([...S.expanded])); }
+      await loadTree(); await navTo(p.path);
+    }
+    closeCapture();
+  } catch(e) { alert('Capture failed: '+e.message); }
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+let _searchT = null;
+document.getElementById('search-input').addEventListener('input', function() {
+  if (!this.value.trim()) return;
+  clearTimeout(_searchT); _searchT=setTimeout(()=>openSearch(this.value), 300);
+});
+
+function openSearch(q='') {
+  document.getElementById('search-modal-q').value=q;
+  document.getElementById('search-results-list').innerHTML='<div class="loading">Searching…</div>';
+  document.getElementById('search-overlay').classList.add('open');
+  if (q) doSearch(q);
+}
+
+function closeSearch() {
+  document.getElementById('search-overlay').classList.remove('open');
+  document.getElementById('search-input').value='';
+}
+
+async function doSearch(q) {
+  const el=document.getElementById('search-results-list');
+  if (!q.trim()) { el.innerHTML=''; return; }
+  try {
+    const res=await api.get('/api/search?q='+encodeURIComponent(q));
+    el.innerHTML='';
+    if (!res.length) { el.innerHTML='<div class="loading">No results</div>'; return; }
+    for (const r of res) {
+      const d=document.createElement('div'); d.className='sr';
+      d.innerHTML=`<div class="sr-name">${r.name}</div><div class="sr-path">${r.path}</div><div class="sr-snip">${r.snippet}</div>`;
+      d.addEventListener('click',()=>{ closeSearch(); navTo(r.path); });
+      el.appendChild(d);
+    }
+  } catch(e) { el.innerHTML='<div class="loading">Error: '+e.message+'</div>'; }
+}
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key==='k') { e.preventDefault(); openCapture(); }
+  else if (e.ctrlKey && e.key==='/') { e.preventDefault(); openSearch(); }
+  else if (e.ctrlKey && e.key==='s') { e.preventDefault(); save(); }
+  else if (e.key==='Escape') {
+    if (document.getElementById('cap-overlay').classList.contains('open')) { closeCapture(); return; }
+    if (document.getElementById('newpage-overlay').classList.contains('open')) { closeNewPage(); return; }
+    if (document.getElementById('search-overlay').classList.contains('open')) { closeSearch(); return; }
+    if (S.isEditing) save().then(()=>exitEdit());
+  }
+  else if (e.key==='Enter' && !e.shiftKey) {
+    if (document.getElementById('newpage-overlay').classList.contains('open') && document.activeElement===document.getElementById('np-name')) { e.preventDefault(); submitNewPage(); }
+    else if (document.getElementById('cap-overlay').classList.contains('open') && document.activeElement===document.getElementById('cap-title')) { e.preventDefault(); submitCapture(); }
+  }
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+loadTree();
+</script>
+</body>
+</html>

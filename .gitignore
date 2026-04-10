@@ -1,0 +1,38 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Runtime config (contains personal paths — use config.sample.toml instead)
+tasks.toml
+
+# Claude Code instructions (personal)
+CLAUDE.md
+
+# Knowledge base data (personal — keep in a separate private repo or backup)
+# Uncomment the line below if you want to exclude all page data:
+# org/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
