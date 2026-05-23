@@ -9,7 +9,10 @@ dependencies = [
   "textual",
   "python-frontmatter",
   "pyyaml",
-  "pydantic"
+  "pydantic",
+  "mcp[cli]",
+  "itsdangerous",
+  "python-multipart"
 ]
 
 [project.scripts]

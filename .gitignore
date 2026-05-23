@@ -36,3 +36,17 @@ dist/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Screenshots / debug captures
+*.png
+*.jpg
+*.jpeg
+
+# Zip archives
+*.zip
+
+# Playwright MCP
+.playwright-mcp/
+
+# Forest agent CLAUDE.md (personal)
+FOREST_CLAUDE.md

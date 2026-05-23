@@ -8,14 +8,164 @@ from pathlib import Path
 from typing import List, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Form
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.middleware.sessions import SessionMiddleware
 
 from . import store
-from .config import VALID_STATES, VALID_PRIORITIES, SERVER_HOST, SERVER_PORT
+from .config import VALID_STATES, VALID_PRIORITIES, SERVER_HOST, SERVER_PORT, FOREST_PASSWORD, SESSION_SECRET
 
 app = FastAPI(title="TaskThink API", version="0.2.0")
+
+
+# ── Auth helpers ───────────────────────────────────────────────────────────────
+
+def _auth_enabled() -> bool:
+    return bool(FOREST_PASSWORD)
+
+
+def _is_authenticated(request: Request) -> bool:
+    if not _auth_enabled():
+        return True
+    return request.session.get("authenticated") is True
+
+
+LOGIN_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>forest — login</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #ffffff;
+      color: #000000;
+      font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace;
+      font-size: 13px;
+    }
+    .card {
+      width: 100%;
+      max-width: 320px;
+      padding: 2rem;
+    }
+    h1 {
+      font-size: 13px;
+      font-weight: normal;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #0066cc;
+      margin-bottom: 2rem;
+    }
+    label {
+      display: block;
+      font-size: 11px;
+      color: #555555;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 0.4rem;
+    }
+    input[type=password] {
+      width: 100%;
+      padding: 0.45rem 0.6rem;
+      background: #ffffff;
+      border: 1px solid #aaaaaa;
+      border-radius: 3px;
+      color: #000000;
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    input[type=password]:focus {
+      border-color: #0066cc;
+      box-shadow: 0 0 0 2px rgba(0,102,204,0.15);
+    }
+    button {
+      margin-top: 1rem;
+      width: 100%;
+      padding: 0.45rem 0.6rem;
+      background: #000000;
+      color: #ffffff;
+      border: none;
+      border-radius: 3px;
+      font-family: inherit;
+      font-size: 13px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #0066cc; }
+    .error {
+      margin-top: 0.75rem;
+      font-size: 11px;
+      color: #cc0000;
+      border-left: 2px solid #cc0000;
+      padding-left: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>forest</h1>
+    <form method="post" action="/auth/login">
+      <label for="password">password</label>
+      <input type="password" id="password" name="password" autofocus required/>
+      {error_block}
+      <button type="submit">enter</button>
+    </form>
+  </div>
+</body>
+</html>"""
+
+
+# ── Auth routes ────────────────────────────────────────────────────────────────
+
+@app.get("/auth/login", response_class=HTMLResponse, include_in_schema=False)
+def login_page(error: str = ""):
+    err = '<p class="error">incorrect password</p>' if error else ""
+    return LOGIN_HTML.replace("{error_block}", err)
+
+
+@app.post("/auth/login", response_class=HTMLResponse, include_in_schema=False)
+async def login_submit(request: Request, password: str = Form(...)):
+    if FOREST_PASSWORD and password == FOREST_PASSWORD:
+        request.session["authenticated"] = True
+        return RedirectResponse("/", status_code=303)
+    return RedirectResponse("/auth/login?error=1", status_code=303)
+
+
+@app.get("/auth/logout", include_in_schema=False)
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/auth/login", status_code=303)
+
+
+# ── Auth middleware (protect all /api/* and / routes) ─────────────────────────
+
+@app.middleware("http")
+async def require_auth(request: Request, call_next):
+    path = request.url.path
+    # Always allow auth endpoints and static login assets
+    if not _auth_enabled() or path.startswith("/auth/"):
+        return await call_next(request)
+    if not _is_authenticated(request):
+        if path.startswith("/api/"):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        return RedirectResponse(f"/auth/login", status_code=302)
+    return await call_next(request)
+
+# SessionMiddleware must be added AFTER auth middleware so it wraps outermost
+# (last add_middleware = outermost = processes request first, populating request.session
+#  before the auth middleware runs)
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, session_cookie="forest_session", max_age=60 * 60 * 24 * 30)  # 30-day cookie
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
 

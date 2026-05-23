@@ -43,6 +43,19 @@ TASKS_ROOT  = Path(_get("tasks",  "root", "TASKS_ROOT",  "~/org/tasks")).expandu
 SERVER_HOST = _get("server", "host", "TASKS_HOST", "0.0.0.0")
 SERVER_PORT = int(_get("server", "port", "TASKS_PORT", "7000"))
 
+# Password gate — required. Set FOREST_PASSWORD env var (or tasks.toml [auth] password).
+FOREST_PASSWORD: str | None = (
+    _cfg.get("auth", {}).get("password")
+    or os.environ.get("FOREST_PASSWORD")
+)
+
+# Secret key for signing session cookies. Override with SESSION_SECRET env var.
+SESSION_SECRET: str = (
+    _cfg.get("auth", {}).get("session_secret")
+    or os.environ.get("SESSION_SECRET")
+    or "change-me-in-production-please"
+)
+
 # Kept as constants for UI hints and optional validation
 VALID_STATES     = ["todo", "in-progress", "blocked", "waiting", "done"]
 VALID_PRIORITIES = ["high", "medium", "low"]

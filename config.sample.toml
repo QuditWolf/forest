@@ -1,13 +1,19 @@
 # TaskThink configuration
 # Copy this file to tasks.toml and adjust to your needs.
 # Environment variables override these values:
-#   TASKS_ROOT  — path to the knowledge base directory
-#   TASKS_HOST  — bind address for the server
-#   TASKS_PORT  — port for the server
+#   TASKS_ROOT        — path to the knowledge base directory
+#   TASKS_HOST        — bind address for the server
+#   TASKS_PORT        — port for the server
+#   FOREST_PASSWORD   — password for the web login gate
+#   SESSION_SECRET    — secret key for signing session cookies
 
 [server]
-host = "127.0.0.1"   # Use "0.0.0.0" to expose on the network
+host = "0.0.0.0"   # Use "127.0.0.1" for localhost-only
 port = 7000
 
 [tasks]
 root = "~/org/taskthink"  # All pages live here as .md files
+
+# [auth]
+# password = ""           # set to enable password gate; or use FOREST_PASSWORD env var
+# session_secret = ""     # strongly recommended in production; or use SESSION_SECRET env var
