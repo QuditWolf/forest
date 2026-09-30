@@ -138,3 +138,16 @@ def test_refuses_to_start_without_password(tmp_path):
 
 def test_regex_length_capped(agent):
     assert agent.get("/api/grep", params={"pattern": "(a+)+" * 100}).status_code == 400
+
+
+def test_cookie_secure_follows_scheme(server):
+    """Direct http:// (VPN IP) gets a plain cookie so login works; HTTPS via nginx gets Secure."""
+    c = httpx.Client(base_url=server.base)
+    plain = c.post("/auth/login", data={"password": PASSWORD, "next": "/"}).headers["set-cookie"].lower()
+    assert "secure" not in plain
+    via_nginx = httpx.Client(base_url=server.base, headers={"X-Forwarded-Proto": "https", "X-Forwarded-For": "5.6.7.8"})
+    sec = via_nginx.post("/auth/login", data={"password": PASSWORD, "next": "/"}).headers["set-cookie"].lower()
+    assert "; secure" in sec and "httponly" in sec
+    # and the plain-http session actually works for the UI + API
+    assert c.get("/api/me").json()["kind"] == "session"
+    assert c.get("/", follow_redirects=False).status_code == 200

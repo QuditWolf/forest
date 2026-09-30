@@ -12,7 +12,7 @@ Server env vars:
   FOREST_PASSWORD      web login password (unset = no login, only OK on localhost)
   FOREST_SECRET        session signing key (auto-generated + persisted if unset)
   FOREST_PUBLIC_URL    e.g. https://tools.example.com (OAuth + origin checks)
-  FOREST_COOKIE_SECURE 1/0 - mark session cookie Secure (default 1 when PUBLIC_URL is https)
+  FOREST_COOKIE_SECURE auto/1/0 - Secure session cookie (auto: on HTTPS requests only)
   FOREST_AUTOCOMMIT    1/0 - git commit after every write (default 1)
 """
 
@@ -70,8 +70,10 @@ PUBLIC_URL = str(_get("server", "public_url", "FOREST_PUBLIC_URL", "")).rstrip("
 
 FOREST_PASSWORD: str | None = _get("auth", "password", "FOREST_PASSWORD", None) or None
 
-COOKIE_SECURE = _bool(_get("auth", "cookie_secure", "FOREST_COOKIE_SECURE",
-                           PUBLIC_URL.startswith("https://")))
+# "auto" (default): Secure cookie on HTTPS requests (via nginx), plain on http:// (e.g. direct VPN IP).
+# "1": always Secure. "0": never.
+_cs = str(_get("auth", "cookie_secure", "FOREST_COOKIE_SECURE", "auto")).strip().lower()
+COOKIE_SECURE: bool | None = None if _cs == "auto" else _bool(_cs)
 
 AUTOCOMMIT = _bool(_get("forest", "autocommit", "FOREST_AUTOCOMMIT", "1"))
 

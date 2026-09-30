@@ -234,7 +234,36 @@ async def access_control(request: Request, call_next):
 
 # SessionMiddleware must be outermost so request.session exists in the auth middleware
 app.add_middleware(SessionMiddleware, secret_key=session_secret(), session_cookie="forest_session",
-                   max_age=60 * 60 * 24 * 30, same_site="lax", https_only=COOKIE_SECURE)
+                   max_age=60 * 60 * 24 * 30, same_site="lax", https_only=bool(COOKIE_SECURE))
+
+
+class SecureCookieOnHttps:
+    """COOKIE_SECURE=auto: add `Secure` to the session cookie on HTTPS requests (nginx sets
+    X-Forwarded-Proto, uvicorn --proxy-headers turns it into scope["scheme"]), and leave it off on
+    plain http:// so direct VPN access (http://10.x.x.x:7700) can log in too."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope.get("scheme") != "https":
+            return await self.app(scope, receive, send)
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = []
+                for k, v in message.get("headers", []):
+                    if k.lower() == b"set-cookie" and v.startswith(b"forest_session=") and b"secure" not in v.lower():
+                        v += b"; secure"
+                    headers.append((k, v))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        return await self.app(scope, receive, send_wrapper)
+
+
+if COOKIE_SECURE is None:
+    app.add_middleware(SecureCookieOnHttps)
 app.include_router(oauth.router)
 
 

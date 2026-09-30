@@ -43,6 +43,10 @@ docker run -d --name forest --restart unless-stopped --env-file .env \
   forest
 ```
 
+Inside the VPN you can also skip nginx and open `http://BIND_IP:PORT` directly (e.g. `http://10.8.0.2:7700`);
+login works on both (the session cookie is `Secure` on HTTPS and plain on the direct http address).
+Use the public HTTPS URL for OAuth connectors and anything outside the VPN.
+
 Vaults and state live only in those host directories, never inside the container or a
 Docker volume. Rebuilding or deleting the container loses nothing.
 
