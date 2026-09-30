@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>tasks</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/lib/theme.css">
+<style>
+body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+/* top bar (same as forest) */
+#topbar { height: 40px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; padding: 0 12px;
+  background: var(--sidebar-bg); flex-shrink: 0; }
+#topbar .brand { font-weight: bold; font-size: 14px; margin-right: 4px; }
+#topbar .crumb { color: var(--dim); font-size: 12px; }
+#topbar .sp { flex: 1; }
+.bar-btn { background: none; border: none; color: var(--dim); padding: 4px 6px; cursor: pointer; text-decoration: none; font-size: 12px; }
+.bar-btn:hover { color: var(--fg); background: var(--hover-bg); }
+.kbd-hint { color: var(--dim); font-size: 11px; }
+#vault-sel { border: none; background: transparent; font-weight: bold; cursor: pointer; }
+
+.main { display: flex; flex: 1; overflow: hidden; }
+.panel { display: flex; flex-direction: column; border-right: 1px solid var(--border); overflow: hidden; }
+.panel-header { padding: 4px 8px; border-bottom: 1px solid var(--border); font-weight: bold; display: flex; align-items: center;
+  gap: 6px; flex-shrink: 0; min-height: 28px; }
+.panel-header .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-body { flex: 1; overflow-y: auto; }
+.toolbar { padding: 4px 8px; border-top: 1px solid var(--border); display: flex; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
+
+/* categories */
+.categories { width: 200px; background: var(--sidebar-bg); }
+.cat-item { padding: 3px 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; white-space: nowrap; }
+.cat-item:hover { background: var(--hl); }
+.cat-item.active { background: var(--fg); color: var(--bg); }
+.cat-item.active .cat-count { color: var(--bg); }
+.cat-count { font-size: 11px; color: var(--dim); }
+.cat-count.warn { color: var(--bad); }
+.cat-sep { padding: 8px 8px 2px; font-size: 11px; color: var(--dim); }
+
+/* list */
+.tasks-panel { flex: 1; min-width: 280px; }
+.task-item { padding: 3px 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--hl); }
+.task-item:hover { background: var(--hl); }
+.task-item.active { background: var(--fg); color: var(--bg); }
+.task-item.active .task-where, .task-item.active .task-due { color: var(--bg); }
+.task-item.done { opacity: 0.5; }
+.task-item.overdue .task-name { color: var(--bad); }
+.task-item.due-soon .task-name { color: var(--warn); }
+.task-item.active.overdue .task-name, .task-item.active.due-soon .task-name { color: var(--bg); }
+.task-icon { width: 14px; text-align: center; flex-shrink: 0; cursor: pointer; }
+.task-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-where { color: var(--dim); font-size: 11px; margin-left: 6px; }
+.task-meta { display: flex; gap: 8px; align-items: center; flex-shrink: 0; font-size: 11px; }
+.task-due { color: var(--dim); }
+.chip { background: none; border: 1px solid transparent; padding: 0 5px; font-size: 11px; color: var(--dim); }
+.chip.on { border-color: var(--fg); color: var(--fg); }
+#filter { width: 100%; border-width: 0 0 1px 0; }
+
+/* detail */
+.detail-panel { width: 380px; border-right: none; }
+.detail-body { padding: 8px 10px; }
+.fl { font-size: 11px; color: var(--dim); margin: 8px 0 2px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.detail-body select, .detail-body input[type=text], .detail-body input[type=date] { width: 100%; }
+input.name-input { width: 100%; font-size: 15px; font-weight: bold; border-color: transparent; padding-left: 0; }
+input.name-input:focus { border-color: var(--border); padding-left: 6px; }
+.row { display: flex; gap: 6px; align-items: center; }
+.row > input, .row > select { flex: 1; }
+textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; }
+.notes-area { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 6px; line-height: 1.5; cursor: text; }
+.notes-area h1, .notes-area h2, .notes-area h3 { font-size: 13px; margin: 8px 0 4px; }
+.notes-area p { margin: 4px 0; }
+.notes-area ul, .notes-area ol { padding-left: 18px; }
+.notes-area code, .notes-area pre { background: var(--hl); }
+.notes-area pre { padding: 6px; overflow-x: auto; }
+.notes-area a.wikilink { text-decoration: none; border-bottom: 1px dotted var(--border); }
+.notes-area img { max-width: 100%; }
+.empty-note { color: var(--dim); font-style: italic; }
+.sub-row { padding: 1px 0; cursor: pointer; }
+.sub-row:hover { text-decoration: underline; }
+.footer-ref { font-size: 11px; color: var(--dim); margin-top: 12px; }
+.add-form { padding: 8px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; background: var(--hl); }
+.add-form input[type=text] { width: 100%; }
+.empty { padding: 16px; color: var(--dim); text-align: center; }
+
+/* calendar */
+#calendar { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+.cal-head { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--border); font-weight: bold; }
+.cal-head .grow { flex: 1; text-align: center; }
+.cal-grid { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); grid-template-rows: 22px; grid-auto-rows: minmax(90px, 1fr); overflow-y: auto; }
+.cal-dow { font-size: 11px; color: var(--dim); padding: 2px 6px; border-bottom: 1px solid var(--border); }
+.cal-day { border-right: 1px solid var(--hl); border-bottom: 1px solid var(--hl); padding: 2px 4px; overflow: hidden; min-width: 0; }
+.cal-day.other { background: var(--sidebar-bg); color: var(--dim); }
+.cal-day.today { outline: 1px solid var(--fg); outline-offset: -1px; }
+.cal-day.drop { background: var(--hl); }
+.cal-num { font-size: 11px; display: flex; justify-content: space-between; }
+.cal-num a { color: var(--dim); text-decoration: none; font-size: 10px; }
+.cal-num a.has { color: var(--fg); text-decoration: underline; }
+.cal-task { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: grab; padding: 0 2px; }
+.cal-task:hover { background: var(--hl); }
+.cal-task.done { opacity: .45; text-decoration: line-through; }
+.cal-task.overdue { color: var(--bad); }
+.cal-task.s-in-progress { font-weight: bold; }
+#toast { position: fixed; bottom: 12px; right: 12px; background: var(--fg); color: var(--bg); padding: 4px 10px; font-size: 12px; display: none; }
+@media (max-width: 900px) { .categories { width: 130px; } .detail-panel { width: 290px; } .kbd-hint { display: none; } }
+</style>
+</head>
+<body>
+<div id="topbar">
+  <span class="brand">tasks</span>
+  <select id="vault-sel" title="Vault"></select>
+  <span class="crumb" id="cat-title"></span>
+  <span class="sp"></span>
+  <span class="kbd-hint">j/k move · x done · a add · n note · e edit · / filter · c calendar</span>
+  <a class="bar-btn" href="/">forest</a>
+  <a class="bar-btn" href="/#today">today</a>
+  <a class="bar-btn" href="/admin" id="admin-link">admin</a>
+  <button class="bar-btn" id="theme-btn" onclick="toggleTheme()" title="Dark/light">&#9788;</button>
+  <a class="bar-btn" href="/auth/logout">logout</a>
+</div>
+
+<div class="main">
+  <div class="panel categories">
+    <div class="panel-header"><span class="grow">categories</span></div>
+    <div class="panel-body" id="cats"></div>
+    <div class="toolbar">
+      <button onclick="refresh(true)">refresh</button>
+      <button onclick="addCategory()">+ cat</button>
+    </div>
+  </div>
+
+  <div class="panel tasks-panel" id="list-panel">
+    <div class="panel-header">
+      <span class="grow" id="tasks-title">tasks</span>
+      <button class="chip" data-f="undone">open</button>
+      <button class="chip" data-f="all">all</button>
+      <button class="chip" data-f="done">done</button>
+      <select id="sort" style="font-size:11px;padding:0 2px">
+        <option value="due">due</option><option value="priority">priority</option>
+        <option value="name">name</option><option value="created">created</option>
+      </select>
+    </div>
+    <div class="panel-body">
+      <div class="add-form" id="add-form" style="display:none">
+        <input type="text" id="new-name" placeholder="task name...">
+        <div class="row">
+          <select id="new-priority"><option value="high">high</option><option value="medium" selected>medium</option><option value="low">low</option></select>
+          <input type="date" id="new-due">
+        </div>
+        <div class="row"><button class="primary" onclick="addTask()">add</button><button onclick="toggleAdd(false)">cancel</button></div>
+      </div>
+      <input type="text" id="filter" placeholder="filter... (/)" style="display:none">
+      <div id="tasks"></div>
+    </div>
+    <div class="toolbar"><button class="primary" id="add-btn" onclick="toggleAdd()">+ add</button></div>
+  </div>
+
+  <div id="calendar">
+    <div class="cal-head">
+      <button onclick="calMove(-1)">&lt;</button>
+      <button onclick="calMove(0)">today</button>
+      <span class="grow" id="cal-title"></span>
+      <button onclick="calMove(1)">&gt;</button>
+    </div>
+    <div class="cal-grid" id="cal-grid"></div>
+  </div>
+
+  <div class="panel detail-panel">
+    <div class="panel-header"><span class="grow">detail</span>
+      <a class="bar-btn" id="copy-link" style="display:none" title="Copy link to this task (shift: copy [[wikilink]])">link</a>
+      <a class="bar-btn" id="open-forest" style="display:none">open in forest</a></div>
+    <div class="panel-body" id="detail"><div class="empty">select a task</div></div>
+    <div class="toolbar" id="detail-tools" style="display:none">
+      <button onclick="toggleNote()">+ note</button>
+      <button onclick="toggleEditNotes()" id="edit-notes-btn">edit notes</button>
+      <button onclick="addSubtask()">+ subtask</button>
+      <button class="danger" onclick="deleteTask()">delete</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script src="/lib/marked.min.js"></script>
+<script src="/lib/purify.min.js"></script>
+<script>
+'use strict';
+marked.setOptions({ breaks: true, gfm: true });
+
+const STATES = ['todo', 'in-progress', 'blocked', 'waiting', 'done'];
+const PRIORITIES = ['high', 'medium', 'low'];
+const PRI_RANK = { high: 0, medium: 1, low: 2 };
+const ICON = { todo: '○', 'in-progress': '◐', blocked: '✗', waiting: '⏸', done: '✓' };
+const DOT = { high: '●', medium: '◉', low: '○' };
+
+const S = {
+  vault: localStorage.getItem('t-vault') || 'tasks', vaults: [],
+  pages: [], cat: localStorage.getItem('t-cat') || '*agenda:today',
+  list: [], sel: null, page: null,
+  filter: localStorage.getItem('t-filter') || 'undone',
+  sort: localStorage.getItem('t-sort') || 'due',
+  editingNotes: false,
+  calMonth: null,
+};
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const enc = p => p.split('/').map(encodeURIComponent).join('/');
+const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const today = () => iso(new Date());
+
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 3000); }
+
+function toggleTheme() {
+  const dark = document.body.classList.toggle('theme-dark');
+  localStorage.setItem('f-theme', dark ? 'dark' : 'light');
+  $('theme-btn').innerHTML = dark ? '&#9790;' : '&#9788;';
+}
+if (localStorage.getItem('f-theme') === 'dark') { document.body.classList.add('theme-dark'); $('theme-btn').innerHTML = '&#9790;'; }
+
+async function api(url, method = 'GET', body) {
+  const opts = { method, headers: { 'X-Requested-With': 'forest' } };
+  if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = '/auth/login?next=/tasks'; throw new Error('401'); }
+  if (!r.ok) { const e = new Error(`${r.status} ${await r.text()}`); e.status = r.status; toast(e.message.slice(0, 160)); throw e; }
+  return r.status === 204 ? null : r.json();
+}
+const vp = (rest, vault) => `/api/${encodeURIComponent(vault || S.vault)}/${rest}`;
+
+// ── categories: top-level folders of the vault; '' = root-level pages (unsorted) ──
+const catOf = p => { const i = p.path.indexOf('/'); return i < 0 ? '' : p.path.slice(0, i); };
+const isCategoryIndex = p => p.is_folder && p.path.split('/').length === 2;
+
+async function loadPages() { S.pages = await api(vp('pages')); }
+
+async function renderCats() {
+  const cats = {};
+  for (const p of S.pages) {
+    if (p.path.startsWith('_') || p.path.startsWith('journal/')) continue;
+    if (isCategoryIndex(p)) { cats[catOf(p)] ??= { name: p.name, n: 0, over: 0 }; continue; }
+    const c = catOf(p);
+    cats[c] ??= { name: c || 'unsorted', n: 0, over: 0 };
+    if (p.state && p.state !== 'done') cats[c].n++;
+    if (p.due && p.due < today() && p.state !== 'done') cats[c].over++;
+  }
+  let over = [], soon = [];
+  try { [over, soon] = await Promise.all([api('/api/agenda?overdue=true'), api('/api/agenda?due_within=0d')]); } catch (e) {}
+  const item = (key, label, count, warn) =>
+    `<div class="cat-item ${S.cat === key ? 'active' : ''}" data-cat="${esc(key)}"><span>${esc(label)}</span>` +
+    `<span class="cat-count ${warn ? 'warn' : ''}">${count ?? ''}</span></div>`;
+  let html = '<div class="cat-sep">agenda (all vaults)</div>';
+  html += item('*agenda:overdue', 'overdue', over.length || '', over.length > 0);
+  html += item('*agenda:today', 'today', soon.length || '');
+  html += item('*agenda:week', 'next 7 days', '');
+  html += item('*agenda:doing', 'in progress', '');
+  html += item('*calendar', 'calendar', '');
+  html += `<div class="cat-sep">${esc(S.vault)}</div>`;
+  html += item('*all', 'all', S.pages.filter(p => !isCategoryIndex(p) && p.state && p.state !== 'done').length);
+  for (const [k, c] of Object.entries(cats).sort((a, b) => (a[0] === '') - (b[0] === '') || a[0].localeCompare(b[0])))
+    html += item(k, k === '' ? 'unsorted' : c.name, c.n || '', c.over > 0);
+  $('cats').innerHTML = html;
+  $('cats').querySelectorAll('.cat-item').forEach(d => d.addEventListener('click', () => selectCat(d.dataset.cat)));
+}
+
+async function selectCat(key) {
+  S.cat = key; localStorage.setItem('t-cat', key);
+  toggleAdd(false);
+  await renderCats();
+  await loadList();
+}
+
+async function addCategory() {
+  const name = prompt('new category name');
+  if (!name) return;
+  await api(vp('pages'), 'POST', { name, as_folder: true });
+  await refresh(true);
+}
+
+// ── list ──
+async function loadList() {
+  const c = S.cat;
+  const cal = c === '*calendar';
+  $('calendar').style.display = cal ? 'flex' : 'none';
+  $('list-panel').style.display = cal ? 'none' : 'flex';
+  if (cal) return renderCalendar();
+  let list;
+  $('add-btn').style.display = c.startsWith('*agenda') ? 'none' : '';
+  if (c.startsWith('*agenda:')) {
+    const kind = c.split(':')[1];
+    const q = { overdue: 'overdue=true', today: 'due_within=0d', week: 'due_within=7d', doing: 'state=in-progress' }[kind];
+    list = await api('/api/agenda?' + q);
+    $('tasks-title').textContent = { overdue: 'overdue', today: 'due today (and overdue)', week: 'next 7 days', doing: 'in progress' }[kind];
+    $('cat-title').textContent = 'all vaults';
+  } else {
+    list = S.pages.filter(p => !isCategoryIndex(p) && !p.path.startsWith('_') && !p.path.startsWith('journal/')
+                                && (c === '*all' || catOf(p) === c));
+    if (c === '*all') list = list.filter(p => p.state);
+    if (S.filter === 'undone') list = list.filter(p => p.state !== 'done');
+    if (S.filter === 'done') list = list.filter(p => p.state === 'done');
+    const label = c === '*all' ? 'all' : c === '' ? 'unsorted' : c;
+    $('tasks-title').textContent = label;
+    $('cat-title').textContent = S.vault + ' / ' + label;
+  }
+  const q = $('filter').value.trim().toLowerCase();
+  if (q) list = list.filter(p => (p.name + ' ' + p.path + ' ' + (p.tags || []).join(' ')).toLowerCase().includes(q));
+  const key = {
+    due: p => [p.state === 'done', p.due || '9999', PRI_RANK[p.priority] ?? 3, p.name.toLowerCase()],
+    priority: p => [p.state === 'done', PRI_RANK[p.priority] ?? 3, p.due || '9999', p.name.toLowerCase()],
+    name: p => [p.name.toLowerCase()],
+    created: p => [p.created ? -Date.parse(p.created) : 0],
+  }[S.sort];
+  list.sort((a, b) => { const ka = key(a), kb = key(b); for (let i = 0; i < ka.length; i++) { if (ka[i] < kb[i]) return -1; if (ka[i] > kb[i]) return 1; } return 0; });
+  S.list = list;
+  renderList();
+}
+
+function dueClass(t) {
+  if (t.state === 'done') return 'done';
+  if (!t.due) return '';
+  const delta = Math.round((new Date(t.due + 'T00:00') - new Date(today() + 'T00:00')) / 86400000);
+  return delta < 0 ? 'overdue' : delta <= 3 ? 'due-soon' : '';
+}
+
+const isSel = t => S.sel && S.sel.vault === (t.vault || S.vault) && S.sel.path === t.path;
+
+function renderList() {
+  const el = $('tasks');
+  if (!S.list.length) { el.innerHTML = '<div class="empty">nothing here</div>'; return; }
+  const inCat = !S.cat.startsWith('*');
+  el.innerHTML = S.list.map((t, i) => {
+    const depth = inCat ? Math.max(0, t.path.split('/').length - (t.is_folder ? 2 : 1) - (S.cat === '' ? 0 : 1)) : 0;
+    const where = inCat ? '' : `<span class="task-where">${esc(S.cat.startsWith('*agenda') ? t.vault + ':' : '')}${esc(t.path.replace(/(\/index)?\.md$/, ''))}</span>`;
+    return `<div class="task-item ${isSel(t) ? 'active' : ''} ${dueClass(t)}" data-i="${i}" style="padding-left:${8 + depth * 14}px">
+      <span class="task-icon" data-toggle="${i}" title="toggle done [x]">${ICON[t.state] || '·'}</span>
+      <span class="task-name">${esc(t.name)}${t.is_folder ? ' <span class="task-where">+</span>' : ''}${where}</span>
+      <span class="task-meta"><span>${DOT[t.priority] || ''}</span>${t.due ? `<span class="task-due">${esc(t.due)}</span>` : ''}</span></div>`;
+  }).join('');
+  el.querySelectorAll('.task-item').forEach(d => d.addEventListener('click', e => {
+    const i = +d.dataset.i;
+    if (e.target.dataset.toggle !== undefined) quickToggle(S.list[i]);
+    else selectTask(S.list[i]);
+  }));
+}
+
+async function quickToggle(t) {
+  await api(vp('page/' + enc(t.path), t.vault || S.vault), 'PATCH', { state: t.state === 'done' ? 'todo' : 'done' });
+  await refresh(true);
+}
+
+// ── calendar (month grid, drag a task to another day to change its due date) ──
+async function renderCalendar() {
+  const base = S.calMonth || new Date(today() + 'T12:00');
+  S.calMonth = new Date(base.getFullYear(), base.getMonth(), 1, 12);
+  const y = S.calMonth.getFullYear(), m = S.calMonth.getMonth();
+  $('cal-title').textContent = S.calMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+  $('cat-title').textContent = 'calendar (all vaults)';
+  const [tasks, days] = await Promise.all([api('/api/agenda?state=all'), api('/api/daily/days').catch(() => ({ days: [] }))]);
+  const journal = new Set(days.days);
+  const byDay = {};
+  tasks.filter(t => t.due).forEach(t => (byDay[t.due] ??= []).push(t));
+  const start = new Date(y, m, 1, 12);
+  start.setDate(1 - ((start.getDay() + 6) % 7));   // weeks start Monday
+  let html = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map(d => `<div class="cal-dow">${d}</div>`).join('');
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start); d.setDate(start.getDate() + i);
+    const key = iso(d);
+    const items = (byDay[key] || []).sort((a, b) => (a.state === 'done') - (b.state === 'done') || (PRI_RANK[a.priority] ?? 3) - (PRI_RANK[b.priority] ?? 3));
+    html += `<div class="cal-day ${d.getMonth() !== m ? 'other' : ''} ${key === today() ? 'today' : ''}" data-day="${key}">
+      <div class="cal-num"><span>${d.getDate()}</span><a href="/#forest/journal/${key}.md" class="${journal.has(key) ? 'has' : ''}" title="journal">${journal.has(key) ? 'journal' : ''}</a></div>
+      ${items.map(t => `<div class="cal-task ${t.state === 'done' ? 'done' : ''} ${key < today() && t.state !== 'done' ? 'overdue' : ''} s-${esc(t.state)}"
+         draggable="true" data-vault="${esc(t.vault)}" data-path="${esc(t.path)}" title="${esc(t.vault + ':' + t.path)}">${ICON[t.state] || '·'} ${esc(t.name)}</div>`).join('')}
+    </div>`;
+    if (i >= 34 && d.getMonth() !== m && d.getDay() === 0) break;
+  }
+  const grid = $('cal-grid');
+  grid.innerHTML = html;
+  grid.querySelectorAll('.cal-task').forEach(el => {
+    el.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', JSON.stringify({ vault: el.dataset.vault, path: el.dataset.path })));
+    el.addEventListener('click', () => selectTask({ vault: el.dataset.vault, path: el.dataset.path }));
+  });
+  grid.querySelectorAll('.cal-day').forEach(day => {
+    day.addEventListener('dragover', e => { e.preventDefault(); day.classList.add('drop'); });
+    day.addEventListener('dragleave', () => day.classList.remove('drop'));
+    day.addEventListener('drop', async e => {
+      e.preventDefault(); day.classList.remove('drop');
+      const t = JSON.parse(e.dataTransfer.getData('text/plain') || '{}');
+      if (!t.path) return;
+      await api(vp('page/' + enc(t.path), t.vault), 'PATCH', { due: day.dataset.day });
+      toast('due ' + day.dataset.day);
+      if (S.sel && S.sel.path === t.path) selectTask(S.sel);
+      renderCalendar();
+    });
+  });
+}
+function calMove(n) {
+  if (n === 0) S.calMonth = null;
+  else S.calMonth = new Date(S.calMonth.getFullYear(), S.calMonth.getMonth() + n, 1, 12);
+  renderCalendar();
+}
+
+// ── detail ──
+async function selectTask(t, noHash) {
+  S.sel = { vault: t.vault || S.vault, path: t.path };
+  S.editingNotes = false;
+  S.page = await api(vp('page/' + enc(t.path), S.sel.vault));
+  S.sel.path = S.page.path;
+  const h = '#' + S.sel.vault + '/' + S.page.path;
+  if (!noHash && location.hash !== h) history.replaceState(null, '', h);
+  if (!S.cat.startsWith('*calendar')) renderList();
+  renderDetail();
+}
+
+function renderDetail() {
+  const p = S.page, el = $('detail');
+  ['detail-tools', 'open-forest', 'copy-link'].forEach(id => $(id).style.display = p ? '' : 'none');
+  if (!p) { el.innerHTML = '<div class="empty">select a task</div>'; return; }
+  $('open-forest').href = '/#' + p.vault + '/' + p.path;
+  const cats = [...new Set(S.pages.filter(isCategoryIndex).map(catOf))].filter(c => !c.startsWith('_') && c !== 'journal');
+  el.innerHTML = `<div class="detail-body">
+    <input type="text" class="name-input" id="d-name" value="${esc(p.name)}">
+    <div class="two">
+      <div><div class="fl">state</div>
+        <select id="d-state"><option value="">-</option>${STATES.map(s => `<option value="${s}" ${s === p.state ? 'selected' : ''}>${ICON[s]} ${s}</option>`).join('')}</select></div>
+      <div><div class="fl">priority</div>
+        <select id="d-pri"><option value="">-</option>${PRIORITIES.map(s => `<option value="${s}" ${s === p.priority ? 'selected' : ''}>${DOT[s]} ${s}</option>`).join('')}</select></div>
+    </div>
+    <div class="two">
+      <div><div class="fl">due</div><input type="date" id="d-due" value="${esc(p.due || '')}"></div>
+      <div><div class="fl">created${p.completed ? ' / done' : ''}</div>
+        <div class="dim" style="padding-top:4px">${esc(p.created)}${p.completed ? ' / ' + esc(p.completed) : ''}</div></div>
+    </div>
+    <div class="fl">tags</div><input type="text" id="d-tags" value="${esc((p.tags || []).join(', '))}" placeholder="tag, tag">
+    ${(p.inline_tags || []).length ? `<div class="dim" style="font-size:11px;margin-top:2px">in text: ${p.inline_tags.map(t => '#' + esc(t)).join(' ')}</div>` : ''}
+    <div class="fl">remind (push)</div><input type="text" id="d-remind" value="${esc(p.extra?.remind || '')}" placeholder="YYYY-MM-DDTHH:MM">
+    ${p.vault === S.vault ? `<div class="fl">move to</div>
+      <div class="row"><select id="d-move"><option value="">unsorted (root)</option>${cats.filter(c => c !== catOf(p)).map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
+      <button id="d-move-btn">move</button></div>` : ''}
+    <div id="note-input" style="display:none;margin-top:8px"><div class="row">
+      <input type="text" id="d-note" placeholder="note text..."><button class="primary" id="d-note-btn">add</button></div></div>
+    ${p.children?.length ? `<div class="fl">subtasks</div>${p.children.map(c => {
+        const sp = S.pages.find(x => x.path === c);
+        return `<div class="sub-row" data-path="${esc(c)}">${sp ? (ICON[sp.state] || '·') : '·'} ${esc(sp ? sp.name : c)}</div>`; }).join('')}` : ''}
+    <div id="notes"></div>
+    <div class="footer-ref">${esc(p.vault)}:${esc(p.path)} · ${esc(p.short_id)}</div>
+  </div>`;
+  const patch = async fields => {
+    S.page = await api(vp('page/' + enc(p.path), p.vault), 'PATCH', fields);
+    await refresh(true);
+  };
+  $('d-name').addEventListener('change', e => e.target.value.trim() && patch({ name: e.target.value.trim() }));
+  $('d-state').addEventListener('change', e => patch({ state: e.target.value || null }));
+  $('d-pri').addEventListener('change', e => patch({ priority: e.target.value || null }));
+  $('d-due').addEventListener('change', e => patch({ due: e.target.value || null }));
+  $('d-tags').addEventListener('change', e => patch({ tags: e.target.value.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean) }));
+  $('d-remind').addEventListener('change', e => patch({ extra: { remind: e.target.value.trim() || null } }));
+  $('d-move-btn')?.addEventListener('click', () => moveTask($('d-move').value));
+  $('d-note').addEventListener('keydown', e => e.key === 'Enter' && addNote());
+  $('d-note-btn').addEventListener('click', addNote);
+  el.querySelectorAll('.sub-row').forEach(r => r.addEventListener('click', () => selectTask({ vault: p.vault, path: r.dataset.path })));
+  renderNotes();
+}
+
+function renderNotes() {
+  const p = S.page, box = $('notes');
+  $('edit-notes-btn').textContent = S.editingNotes ? 'save notes' : 'edit notes';
+  if (S.editingNotes) {
+    box.innerHTML = '<div class="fl">notes (markdown)</div><textarea id="d-notes"></textarea>';
+    $('d-notes').value = p.content || '';
+    $('d-notes').focus();
+    $('d-notes').addEventListener('keydown', e => {
+      if (e.key === 'Escape' || (e.key === 's' && e.ctrlKey)) { e.preventDefault(); toggleEditNotes(); }
+    });
+    return;
+  }
+  let html = p.content?.trim() ? marked.parse(p.content) : '<span class="empty-note">no notes, click to write</span>';
+  html = html.replace(/\[\[([^\]|#]+)(#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (_, ref, _h, alias) =>
+    `<a class="wikilink" data-ref="${esc(ref.trim())}" href="#">${esc(alias || ref.split(':').pop().split('/').pop().replace(/-/g, ' '))}</a>`);
+  box.innerHTML = `<div class="notes-area">${DOMPurify.sanitize(html, { ADD_ATTR: ['data-ref'] })}</div>`;
+  box.firstElementChild.addEventListener('click', async e => {
+    const a = e.target.closest('a.wikilink');
+    if (a) {
+      e.preventDefault();
+      try {
+        const r = await api('/api/resolve?' + new URLSearchParams({ ref: a.dataset.ref, from_vault: p.vault, from_path: p.path }));
+        if (r.vault === S.vault) selectTask(r); else location.href = '/#' + r.vault + '/' + r.path;
+      } catch (err) {}
+      return;
+    }
+    if (e.target.closest('a,input')) return;
+    if (!window.getSelection().toString()) toggleEditNotes();
+  });
+}
+
+async function toggleEditNotes() {
+  if (!S.page) return;
+  if (S.editingNotes) {
+    const text = $('d-notes').value;
+    if (text !== S.page.content) {
+      const url = vp('page/' + enc(S.page.path), S.page.vault);
+      try {
+        S.page = await api(url, 'PATCH', { content: text, expected_sha: S.page.sha });
+      } catch (e) {
+        if (e.status !== 409) return;
+        if (!confirm('This task was changed elsewhere since you opened it. Overwrite?')) { S.editingNotes = false; return selectTask(S.sel); }
+        S.page = await api(url, 'PATCH', { content: text });
+      }
+    }
+    S.editingNotes = false;
+    renderDetail();
+  } else {
+    S.editingNotes = true;
+    renderNotes();
+  }
+}
+
+function toggleNote() {
+  const n = $('note-input');
+  if (!n) return;
+  n.style.display = n.style.display === 'none' ? '' : 'none';
+  if (n.style.display === '') $('d-note').focus();
+}
+
+async function addNote() {
+  const text = $('d-note').value.trim();
+  if (!text || !S.page) return;
+  S.page = await api(vp('page/' + enc(S.page.path) + '/append', S.page.vault), 'POST', { text });
+  renderDetail();
+}
+
+async function moveTask(cat) {
+  if (!S.page) return;
+  const moved = await api(vp('page/' + enc(S.page.path) + '/move', S.page.vault), 'POST', { new_parent_path: cat ? cat + '/index.md' : null });
+  S.sel = { vault: S.page.vault, path: moved.path };
+  S.page = moved;
+  await refresh(true);
+}
+
+async function deleteTask() {
+  if (!S.page || !confirm(`Delete "${S.page.name}"? (moved to .shadow, restorable)`)) return;
+  await api(vp('page/' + enc(S.page.path), S.page.vault), 'DELETE');
+  S.sel = null; S.page = null;
+  history.replaceState(null, '', '#');
+  await refresh(true);
+}
+
+async function addSubtask() {
+  if (!S.page) return;
+  const name = prompt('subtask name');
+  if (!name) return;
+  const v = S.page.vault, parent = S.page.path;
+  await api(vp('pages', v), 'POST', { name, parent_path: parent, state: 'todo' });
+  await refresh(true);
+  const np = S.pages.find(p => p.path === parent || p.path === parent.replace(/\.md$/, '/index.md'));
+  if (np) selectTask({ vault: v, path: np.path });
+}
+
+async function copyLink(e) {
+  if (!S.page) return;
+  const ref = S.page.vault + ':' + S.page.path.replace(/\.md$/, '').replace(/\/index$/, '');
+  const text = e.shiftKey ? '[[' + ref + ']]' : location.origin + '/tasks#' + S.page.vault + '/' + S.page.path;
+  try { await navigator.clipboard.writeText(text); toast('copied'); } catch (err) { prompt('copy:', text); }
+}
+$('copy-link').addEventListener('click', copyLink);
+
+// ── add ──
+function toggleAdd(force) {
+  const f = $('add-form');
+  const show = force ?? f.style.display === 'none';
+  f.style.display = show ? '' : 'none';
+  if (show) $('new-name').focus();
+}
+
+async function addTask() {
+  const name = $('new-name').value.trim();
+  if (!name) return;
+  const c = S.cat;
+  const p = await api(vp('pages'), 'POST', {
+    name, parent_path: c === '' || c.startsWith('*') ? null : c + '/index.md',
+    state: 'todo', priority: $('new-priority').value, due: $('new-due').value || null,
+  });
+  $('new-name').value = ''; $('new-due').value = ''; $('new-priority').value = 'medium';
+  toggleAdd(false);
+  await refresh(true);
+  selectTask(p);
+}
+
+// ── plumbing ──
+async function refresh(keepSel) {
+  await loadPages();
+  await renderCats();
+  await loadList();
+  if (!keepSel) { S.sel = null; S.page = null; }
+  if (S.page) renderDetail(); else renderDetail();
+}
+
+function setFilter(f) {
+  S.filter = f; localStorage.setItem('t-filter', f);
+  document.querySelectorAll('button.chip').forEach(b => b.classList.toggle('on', b.dataset.f === f));
+  loadList();
+}
+document.querySelectorAll('button.chip').forEach(b => b.addEventListener('click', () => setFilter(b.dataset.f)));
+$('sort').addEventListener('change', e => { S.sort = e.target.value; localStorage.setItem('t-sort', S.sort); loadList(); });
+$('filter').addEventListener('input', () => loadList());
+$('new-name').addEventListener('keydown', e => { if (e.key === 'Enter') addTask(); if (e.key === 'Escape') toggleAdd(false); });
+$('vault-sel').addEventListener('change', async e => {
+  S.vault = e.target.value; localStorage.setItem('t-vault', S.vault);
+  if (!S.cat.startsWith('*')) S.cat = '*all';
+  await refresh();
+});
+
+document.addEventListener('keydown', e => {
+  const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
+  if (inInput) { if (e.key === 'Escape') document.activeElement.blur(); return; }
+  const idx = S.list.findIndex(isSel);
+  if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); if (S.list.length) selectTask(S.list[Math.min(S.list.length - 1, idx + 1)]); }
+  else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); if (S.list.length) selectTask(S.list[Math.max(0, idx - 1)]); }
+  else if (e.key === 'x' && idx >= 0) quickToggle(S.list[idx]);
+  else if (e.key === 'a' && !S.cat.startsWith('*agenda') && S.cat !== '*calendar') { e.preventDefault(); toggleAdd(true); }
+  else if (e.key === 'n' && S.page) { e.preventDefault(); toggleNote(); }
+  else if (e.key === 'e' && S.page) { e.preventDefault(); toggleEditNotes(); }
+  else if (e.key === 'c') selectCat(S.cat === '*calendar' ? '*agenda:today' : '*calendar');
+  else if (e.key === '/') { e.preventDefault(); $('filter').style.display = ''; $('filter').focus(); }
+});
+
+function openFromHash() {
+  const h = decodeURIComponent(location.hash.slice(1));
+  const i = h.indexOf('/');
+  if (i > 0 && S.vaults.includes(h.slice(0, i)) && h.slice(i + 1)) selectTask({ vault: h.slice(0, i), path: h.slice(i + 1) }, true);
+}
+window.addEventListener('hashchange', openFromHash);
+window.addEventListener('focus', () => { if (!S.editingNotes) refresh(true).catch(() => {}); });
+
+(async () => {
+  const me = await api('/api/me');
+  S.vaults = me.vaults;
+  if (!me.admin) $('admin-link').style.display = 'none';
+  if (!S.vaults.includes(S.vault)) S.vault = S.vaults.includes('tasks') ? 'tasks' : S.vaults[0];
+  $('vault-sel').innerHTML = S.vaults.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+  $('vault-sel').value = S.vault;
+  $('sort').value = S.sort;
+  document.querySelectorAll('button.chip').forEach(b => b.classList.toggle('on', b.dataset.f === S.filter));
+  await loadPages();
+  await renderCats();
+  await loadList();
+  openFromHash();
+})();
+</script>
+</body>
+</html>

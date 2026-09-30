@@ -1,0 +1,23 @@
+{
+  "name": "forest",
+  "short_name": "forest",
+  "description": "Personal knowledge base and task planner",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
+  "share_target": {
+    "action": "/clip",
+    "method": "GET",
+    "params": { "title": "title", "text": "text", "url": "url" }
+  },
+  "shortcuts": [
+    { "name": "tasks", "url": "/tasks" },
+    { "name": "today", "url": "/#today" },
+    { "name": "capture", "url": "/clip" }
+  ]
+}

@@ -1,0 +1,28 @@
+# docker compose up -d --build
+#
+# All data stays on the host, in the directories set in .env:
+#   VAULTS_DIR/forest, VAULTS_DIR/tasks   the vaults (plain .md files, each a git repo)
+#   STATE_DIR                             tokens, audit log, session secret, oauth clients
+# Nothing is stored inside the container or in a Docker volume.
+services:
+  forest:
+    build: .
+    image: forest:latest
+    container_name: forest
+    restart: unless-stopped
+    env_file: .env
+    # Run as your host user so files on the host stay owned by you (id -u / id -g)
+    user: "${PUID:-1000}:${PGID:-1000}"
+    ports:
+      # Bind to the homeserver's VPN address so only nginx (over the VPN) can reach it.
+      - "${BIND_IP:-127.0.0.1}:${PORT:-7700}:7000"
+    volumes:
+      - ${VAULTS_DIR:?set VAULTS_DIR in .env}:/data/vaults
+      - ${STATE_DIR:?set STATE_DIR in .env}:/data/.forest
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g

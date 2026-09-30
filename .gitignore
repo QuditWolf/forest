@@ -13,7 +13,7 @@ build/
 # Runtime config (contains personal paths — use config.sample.toml instead)
 tasks.toml
 
-# Claude Code instructions (personal)
+# Local agent instructions (personal)
 CLAUDE.md
 
 # Knowledge base data (personal — keep in a separate private repo or backup)
@@ -50,3 +50,13 @@ htmlcov/
 
 # Forest agent CLAUDE.md (personal)
 FOREST_CLAUDE.md
+
+# Server data + secrets
+data/
+.env
+.venv*/
+forest.toml
+.claude/
+adding_claude_skill.md
+.archive/
+.playwright-mcp/

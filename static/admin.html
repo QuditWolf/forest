@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>forest - admin</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/lib/theme.css">
+<style>
+body { max-width: 1100px; margin: 0 auto; padding: 16px 20px 60px; }
+header { display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 18px; }
+header h1 { font-size: 16px; }
+header a { color: var(--dim); text-decoration: none; } header a:hover { color: var(--fg); text-decoration: underline; }
+header .sp { flex: 1; }
+h2 { font-size: 13px; margin: 26px 0 8px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); }
+section { margin-bottom: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--hl); vertical-align: top; }
+th { color: var(--dim); font-weight: normal; border-bottom-color: var(--border); }
+tr:hover td { background: var(--hl); }
+input, select, button { font-family: inherit; font-size: 12px; padding: 4px 6px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); }
+button { cursor: pointer; } button:hover { background: var(--hl); }
+button.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+button.danger:hover { color: var(--bad); border-color: var(--bad); }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.box { border: 1px solid var(--border); padding: 12px; margin: 10px 0; }
+.new-token { border-color: var(--accent); }
+code, pre { background: var(--hl); padding: 1px 4px; }
+pre { padding: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 6px 0; font-size: 12px; }
+.dim { color: var(--dim); } .bad { color: var(--bad); } .ok { color: #2a2; }
+.tabs button { border-bottom: none; } .tabs button.on { background: var(--hl); font-weight: bold; }
+.small { font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>forest admin</h1>
+  <a href="/">forest</a><a href="/tasks">tasks</a><a href="/api/docs" target="_blank">api docs</a>
+  <span class="sp"></span>
+  <a href="/auth/logout">logout</a>
+</header>
+
+<h2>connect</h2>
+<section class="box small" id="connect"></section>
+
+<h2>capture (web clipper)</h2>
+<section class="box small" id="clipper"></section>
+
+<h2>calendar feed and reminders</h2>
+<section class="box small" id="reminders"></section>
+
+<h2>access tokens</h2>
+<section>
+  <div class="row box">
+    <input id="t-name" placeholder="name, e.g. laptop-agent" style="width:240px">
+    <select id="t-scope"><option value="read">read only</option><option value="write">read + write</option></select>
+    <select id="t-vaults" multiple size="1" title="Ctrl-click for several; none selected = all vaults" style="min-width:120px"></select>
+    <select id="t-exp"><option value="">never expires</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="365">1 year</option></select>
+    <button class="primary" onclick="createToken()">generate</button>
+  </div>
+  <div id="new-token"></div>
+  <table><thead><tr><th>name</th><th>scope</th><th>vaults</th><th>kind</th><th>token</th><th>created</th><th>expires</th><th>last used</th><th></th></tr></thead>
+  <tbody id="tokens"></tbody></table>
+</section>
+
+<h2>oauth clients <span class="dim small">(registered by e.g. Claude.ai connectors)</span></h2>
+<section><table><thead><tr><th>name</th><th>client id</th><th>redirects</th><th>registered</th><th></th></tr></thead><tbody id="clients"></tbody></table></section>
+
+<h2>backup &amp; restore</h2>
+<section class="box">
+  <div class="row"><button class="primary" onclick="location.href='/api/backup'">download backup (.tar.gz, all vaults + git history)</button></div>
+  <div class="row" style="margin-top:10px">
+    <input type="file" id="r-file" accept=".tar.gz,.tgz,application/gzip">
+    <button class="danger" onclick="restore()">restore from file</button>
+    <span class="dim small">current vault contents are moved aside on the server (not deleted)</span>
+  </div>
+  <div id="r-result" class="small" style="margin-top:6px"></div>
+</section>
+
+<h2>audit log</h2>
+<section>
+  <div class="row" style="margin-bottom:6px">
+    <select id="a-filter">
+      <option value="">everything</option><option value="login">logins</option><option value="auth">auth failures</option>
+      <option value="mcp">mcp calls</option><option value="http">api requests</option><option value="token">token changes</option>
+      <option value="oauth">oauth</option><option value="git">git pushes</option><option value="backup">backups</option>
+    </select>
+    <button onclick="loadAudit()">refresh</button>
+  </div>
+  <table><thead><tr><th>time</th><th>event</th><th>who</th><th>details</th></tr></thead><tbody id="audit"></tbody></table>
+</section>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+if (localStorage.getItem('f-theme') === 'dark') document.body.classList.add('theme-dark');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const base = location.origin;
+async function api(url, method = 'GET', body, raw) {
+  const opts = { method, headers: { 'X-Requested-With': 'forest' } };
+  if (body !== undefined && !raw) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  if (raw) opts.body = body;
+  const r = await fetch(url, opts);
+  if (r.status === 401) { location.href = '/auth/login?next=/admin'; throw new Error('401'); }
+  if (!r.ok) { const t = await r.text(); alert(t); throw new Error(t); }
+  return r.status === 204 ? null : r.json();
+}
+const ago = iso => {
+  if (!iso) return '<span class="dim">never</span>';
+  const s = (Date.now() - Date.parse(iso)) / 1000;
+  const t = s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : Math.floor(s / 86400) + 'd ago';
+  return `<span title="${esc(iso)}">${t}</span>`;
+};
+
+function renderConnect(vaults) {
+  $('connect').innerHTML = `
+    <div>MCP endpoint (Streamable HTTP): <code>${esc(base)}/mcp</code></div>
+    <div style="margin-top:6px"><b>Claude.ai / Claude desktop</b>: Settings → Connectors → Add custom connector → URL above. You'll be sent here to approve (OAuth).</div>
+    <div style="margin-top:6px"><b>other MCP clients</b> (HTTP transport + bearer token; generate a token below):</div>
+    <pre>{"mcpServers": {"forest": {"type": "http", "url": "${esc(base)}/mcp",
+  "headers": {"Authorization": "Bearer fst_..."}}}}</pre>
+    <div><b>Hermes agent / other MCP clients</b> - config snippet:</div>
+    <pre>mcp_servers:
+  forest:
+    url: "${esc(base)}/mcp"
+    headers:
+      Authorization: "Bearer fst_..."</pre>
+    <div><b>CLI / TUI</b>: <code>uv tool install git+&lt;repo&gt;</code> then <code>forest login --url ${esc(base)}</code> · <code>forest tui</code></div>
+    <div style="margin-top:6px"><b>git sync / offline</b>: <code>forest clone ~/forest</code> · <code>forest sync ~/forest</code> - or plain git:
+      ${vaults.map(v => `<code>git clone ${esc(base)}/git/${esc(v)}.git</code>`).join(' ')} <span class="dim">(any username, token as password; push needs a write token)</span></div>`;
+}
+
+async function renderExtras() {
+  const st = await api('/api/admin/settings');
+  const bm = `javascript:(()=>{const s=getSelection().toString();window.open('${base}/clip?'+new URLSearchParams({url:location.href,title:document.title,text:s}),'forestclip','width=540,height=600')})()`;
+  $('clipper').innerHTML = `
+    <div><b>bookmarklet</b>: drag this to your bookmarks bar: <a href="${esc(bm)}" onclick="event.preventDefault();alert('drag it to the bookmarks bar')" style="border:1px solid var(--border);padding:1px 8px;text-decoration:none">+ forest</a>
+      <span class="dim">(opens a small capture window using your login; select text first to quote it)</span></div>
+    <div style="margin-top:6px"><b>phone</b>: open ${esc(base)} in Chrome on Android, menu, "Install app". Then "forest" appears in the Share menu.</div>
+    <div style="margin-top:6px"><b>agents / scripts</b>: <code>POST /api/capture {"url": ..., "title": ..., "text": ..., "fetch": true}</code> with a write token.
+      Captures land in <code>${esc(st.inbox)}</code>.</div>`;
+  $('reminders').innerHTML = `
+    <div><b>calendar feed</b> (Google Calendar, phone): subscribe to
+      <code>${esc(base)}/api/calendar.ics?token=&lt;read token&gt;</code> <span class="dim">(use a dedicated read-only token; revoke it here if the URL leaks)</span></div>
+    <div style="margin-top:8px"><b>ntfy reminders</b>: ${st.ntfy ? `<span class="ok">on</span>, ${esc(st.ntfy_url)} topic ${esc(st.ntfy_topic)}` : '<span class="dim">off (set FOREST_NTFY_URL and FOREST_NTFY_TOPIC)</span>'}
+      · daily digest ${esc(st.digest_time || 'off')} · weekly ${esc(st.weekly_time || 'off')} · timezone ${esc(st.timezone)}</div>
+    <div class="row" style="margin-top:6px">
+      <button onclick="ntfyTest('test')" ${st.ntfy ? '' : 'disabled'}>send test</button>
+      <button onclick="ntfyTest('digest')" ${st.ntfy ? '' : 'disabled'}>send daily digest now</button>
+      <button onclick="ntfyTest('weekly')" ${st.ntfy ? '' : 'disabled'}>send weekly overview now</button>
+      <span class="dim">per task: frontmatter <code>remind: 2026-10-01T09:00</code> (done / snooze buttons in the push)</span></div>`;
+}
+async function ntfyTest(kind) { await api('/api/admin/ntfy-test?kind=' + kind, 'POST'); alert('sent'); }
+
+async function loadTokens() {
+  const ts = await api('/api/admin/tokens');
+  $('tokens').innerHTML = ts.length ? ts.map(t => `<tr>
+    <td>${esc(t.name)}</td><td>${t.scope === 'write' ? '<b>write</b>' : 'read'}</td><td>${esc(t.vaults.join(', ') === '*' ? 'all' : t.vaults.join(', '))}</td>
+    <td>${esc(t.kind)}</td><td><code>${esc(t.hint)}</code></td><td>${ago(t.created)}</td>
+    <td>${t.expires ? (Date.parse(t.expires) < Date.now() ? '<span class="bad">expired</span>' : esc(t.expires.slice(0, 10))) : '<span class="dim">-</span>'}</td>
+    <td>${ago(t.last_used)} <span class="dim small">${esc(t.last_ip || '')}</span></td>
+    <td><button class="danger" data-revoke="${esc(t.id)}">revoke</button></td></tr>`).join('')
+    : '<tr><td colspan="9" class="dim">no tokens yet</td></tr>';
+  document.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm('Revoke this token? Clients using it stop working immediately.')) return;
+    await api('/api/admin/tokens/' + b.dataset.revoke, 'DELETE');
+    loadTokens(); loadAudit();
+  }));
+}
+
+async function createToken() {
+  const name = $('t-name').value.trim();
+  if (!name) { $('t-name').focus(); return; }
+  const vaults = [...$('t-vaults').selectedOptions].map(o => o.value);
+  const t = await api('/api/admin/tokens', 'POST', {
+    name, scope: $('t-scope').value, vaults: vaults.length ? vaults : ['*'],
+    expires_days: $('t-exp').value ? +$('t-exp').value : null,
+  });
+  $('new-token').innerHTML = `<div class="box new-token">
+    <div><b>${esc(t.name)}</b> (${esc(t.scope)}) - copy it now, it won't be shown again:</div>
+    <pre id="tok">${esc(t.token)}</pre>
+    <button onclick="navigator.clipboard.writeText(document.getElementById('tok').textContent)">copy</button>
+    <div class="dim small" style="margin-top:8px">MCP client config:</div>
+    <pre>{"mcpServers": {"forest": {"type": "http", "url": "${esc(base)}/mcp",
+  "headers": {"Authorization": "Bearer ${esc(t.token)}"}}}}</pre>
+    <div class="dim small">CLI: <code>forest login --url ${esc(base)} --token ${esc(t.token)}</code></div></div>`;
+  $('t-name').value = '';
+  loadTokens(); loadAudit();
+}
+
+async function loadClients() {
+  const cs = await api('/api/admin/oauth-clients');
+  $('clients').innerHTML = cs.length ? cs.map(c => `<tr><td>${esc(c.client_name)}</td><td><code>${esc(c.client_id)}</code></td>
+    <td class="small">${c.redirect_uris.map(esc).join('<br>')}</td><td>${ago(new Date(c.created * 1000).toISOString())}</td>
+    <td><button class="danger" data-del="${esc(c.client_id)}">remove</button></td></tr>`).join('')
+    : '<tr><td colspan="5" class="dim">none</td></tr>';
+  document.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm('Remove client and revoke its tokens?')) return;
+    await api('/api/admin/oauth-clients/' + b.dataset.del, 'DELETE');
+    loadClients(); loadTokens();
+  }));
+}
+
+async function loadAudit() {
+  const ev = $('a-filter').value;
+  const rows = await api('/api/admin/audit?limit=300' + (ev ? '&event=' + encodeURIComponent(ev) : ''));
+  $('audit').innerHTML = rows.map(r => {
+    const { ts, event, who, kind, ...rest } = r;
+    const bad = /fail|denied|bad|blocked/.test(event) || rest.ok === false || rest.status >= 400;
+    const details = Object.entries(rest).map(([k, v]) => `${esc(k)}=${esc(typeof v === 'object' ? JSON.stringify(v) : v)}`).join(' ');
+    return `<tr><td class="small">${esc(ts.replace('T', ' ').slice(0, 19))}</td><td class="${bad ? 'bad' : ''}">${esc(event)}</td>
+      <td>${esc(who)}</td><td class="small">${details}</td></tr>`;
+  }).join('') || '<tr><td colspan="4" class="dim">empty</td></tr>';
+}
+
+async function restore() {
+  const f = $('r-file').files[0];
+  if (!f) return;
+  if (!confirm(`Restore from ${f.name}? Current vault contents will be moved aside on the server.`)) return;
+  const fd = new FormData(); fd.append('file', f);
+  const r = await api('/api/admin/restore', 'POST', fd, true);
+  $('r-result').innerHTML = `<span class="ok">restored ${esc(r.restored.join(', '))}</span> · previous contents: <code>${esc(r.moved_aside_to)}</code>`;
+  loadAudit();
+}
+
+$('a-filter').addEventListener('change', loadAudit);
+(async () => {
+  const me = await api('/api/me');
+  $('t-vaults').innerHTML = me.vaults.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+  $('t-vaults').size = Math.min(3, me.vaults.length);
+  renderConnect(me.vaults);
+  renderExtras();
+  loadTokens(); loadClients(); loadAudit();
+})();
+</script>
+</body>
+</html>

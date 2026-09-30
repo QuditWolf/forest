@@ -1,0 +1,11 @@
+.git
+.venv*
+.archive
+.playwright-mcp
+.claude
+data
+dist
+**/__pycache__
+*.png
+forest.toml
+.env

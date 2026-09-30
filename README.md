@@ -1,345 +1,135 @@
-# TaskThink
+# forest
 
-A hierarchical knowledge base and task manager backed entirely by the filesystem. Pages are Markdown files with YAML frontmatter, organized into an unlimited-depth tree. No database, no index, no cache — files on disk are the truth.
+Personal knowledge base + task planner. Plain Markdown pages with YAML frontmatter in
+git-versioned **vaults** (`forest` for notes, `tasks` for the planner), served by one small
+server with:
 
-Three interfaces share one core library:
-- **Web UI** — WYSIWYG editor, Mermaid diagrams, `[[wikilinks]]`, quick capture
-- **CLI** — fast, scriptable, agent-friendly
-- **REST API** — full tree traversal for agentic AI workflows
+- **Web UI** (`/`) - tree, markdown + mermaid, `[[links]]` across vaults, tags, history,
+  local graph, outline, journal, templates, attachments, autocomplete.
+- **Tasks UI** (`/tasks`) - categories, agenda across vaults, calendar with drag to
+  reschedule, notes, subtasks.
+- **Admin** (`/admin`) - read/write tokens, OAuth clients, audit log, backup/restore,
+  clipper, reminders.
+- **MCP** (`/mcp`) - 34 tools for AI assistants and agents (Streamable HTTP).
+- **REST API** (`/api`, docs at `/api/docs`) and **git sync** (`/git/<vault>.git`).
+- **CLI + TUI** clients that talk to the server over HTTPS.
 
----
+Every write is a git commit authored by whoever made it (`web`, `token:laptop-agent`, ...),
+so everything can be diffed and undone.
 
-## Why filesystem-native?
+## Deploy (homeserver + nginx over VPN)
 
-- Every page is a plain `.md` file — readable, diffable, git-versionable
-- Agents (Claude, scripts) can read and write pages directly via the API or filesystem
-- No setup friction: `cp -r` to deploy, `rsync` to back up
-- Works offline, works over SSH, works forever
-
----
-
-## Page format
-
-Every page (whether a top-level project or a deeply nested note) is a `.md` file:
-
-```markdown
----
-name: Feature Auth Design
-state: in-progress
-priority: high
-due: 2026-04-20
-created: 2026-04-10
----
-
-# Feature Auth Design
-
-High-level approach for the OAuth flow.
-
-See [[./api-spec]] for endpoint details.
-
-```mermaid
-graph LR
-  Client -->|auth code| Server
-  Server -->|token| Client
-```
-```
-
-**All metadata fields are optional.** A page can be a pure note with no task metadata.
-
----
-
-## Filesystem layout
-
-```
-TASKS_ROOT/                        ← configurable (default ~/org/taskthink)
-├── internship/
-│   ├── index.md                   ← folder-page (can have children)
-│   ├── feature-auth/
-│   │   ├── index.md               ← nested folder-page
-│   │   ├── design.md              ← leaf page
-│   │   └── api-spec.md
-│   └── mentor-notes.md            ← leaf page
-├── personal/
-│   └── ideas.md
-└── .deleted/                      ← soft-deleted pages land here
-```
-
-**Folder-pages** (`dir/index.md`) can contain child pages.
-**Leaf pages** (`.md` files) hold content but start without children.
-Use the **Promote** button (or `POST /api/page/{path}/promote`) to convert a leaf into a folder when you need to add children.
-
----
-
-## Quick start
-
-### 1. Install
+On the homeserver:
 
 ```sh
-git clone https://github.com/yourname/taskthink
-cd taskthink
-bash install.sh
+git clone <this repo> forest && cd forest
+cp .env.example .env && chmod 600 .env
+$EDITOR .env        # FOREST_PASSWORD, FOREST_SECRET, VAULTS_DIR, STATE_DIR, PUID/PGID,
+                    # BIND_IP (VPN IP), FORWARDED_ALLOW_IPS (nginx VPN IP)
+mkdir -p /srv/forest/vaults /srv/forest/state      # = VAULTS_DIR, STATE_DIR
+docker compose up -d --build
+docker compose logs -f forest
 ```
 
-The script installs [uv](https://github.com/astral-sh/uv), creates a venv, installs the package, and sets up the CLI symlink.
-
-### 2. Configure
+Without compose, the same thing with plain `docker run`:
 
 ```sh
-cp config.sample.toml tasks.toml
-$EDITOR tasks.toml   # set root path and server host/port
+docker build -t forest .
+docker run -d --name forest --restart unless-stopped --env-file .env \
+  --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp --cap-drop ALL \
+  -p 10.8.0.2:7700:7000 \
+  -v /srv/forest/vaults:/data/vaults \
+  -v /srv/forest/state:/data/.forest \
+  forest
 ```
 
-### 3. Run
+Vaults and state live only in those host directories, never inside the container or a
+Docker volume. Rebuilding or deleting the container loses nothing.
+
+On the nginx server: point DNS `tools.example.com` at it, copy
+`deploy/forest-proxy.conf` to `/etc/nginx/snippets/`, use `deploy/nginx-forest.conf`
+as the site (change `10.8.0.2:7700` to `BIND_IP:PORT`), then
+`certbot --nginx -d tools.example.com`.
+
+Your existing pages: copy (or point `VAULTS_DIR` at) folders named `forest/` and `tasks/`,
+e.g. `cp -r ~/org/tasks /srv/forest/vaults/tasks`. They're turned into git repos and
+committed on first start. You can edit the files on the host directly too; changes are
+committed on next start or with the next write.
+
+## Connect agents
+
+Create tokens on `/admin` (read-only by default; limit to vaults; optional expiry).
+
+| Client | How |
+|---|---|
+| Claude.ai / Claude desktop | Settings > Connectors > add custom connector `https://tools.example.com/mcp`. You approve on your server (choose read/write + vaults). |
+| Other MCP clients | HTTP transport, URL `https://tools.example.com/mcp`, header `Authorization: Bearer fst_...` |
+| Skill / guide | `GET /api/skill` or MCP prompt `skill` (source: `forest/skill/SKILL.md`) |
+
+## Clients on your laptop
 
 ```sh
-./start.sh                          # dev mode with hot-reload
-tasks serve                         # production (no reload)
-tasks serve --config /path/to.toml  # explicit config file
+bash install.sh --tool          # installs the `forest` command (uv tool)
+forest login --url https://tools.example.com   # paste a token
+forest tui                      # full-screen client
+forest agenda | forest today "did X" | forest capture "idea" | forest search "..."
+forest show tasks:work/report | forest edit auth-design | forest link auth-design
 ```
 
-Open `http://localhost:7000` in a browser.
+## Backups, offline, sync
 
----
+- `forest backup ~/backups` (or the button on `/admin`) downloads a tar.gz of all vaults
+  with full git history. Restore on `/admin` or locally with `forest restore file.tar.gz --data DIR`
+  (current contents are moved aside, never deleted).
+- Offline: `forest clone ~/forest` git-clones each vault; run a local server on them
+  (`FOREST_VAULT_FOREST=~/forest/forest FOREST_VAULT_TASKS=~/forest/tasks forest serve`)
+  or a local stdio MCP (`forest mcp`). `forest sync ~/forest` pulls then pushes.
+  Plain git also works: `git clone https://tools.../git/forest.git` (token as password,
+  push needs a write token, fast-forward only).
 
-## Web UI
+## Security model
 
-```
-┌──────────────┬──────────────────────────────────────────────────┐
-│ 📋 TaskThink │  [Search…]          [⚡ Capture]  [+ New Page]   │
-├──────────────┼──────────────────────────────────────────────────┤
-│ TREE NAV     │  internship > feature-auth > design              │
-│              ├──────────────────────────────────────────────────┤
-│ ▼ internship │  [Title]  state▼  priority▼  due:[   ]          │
-│   ▼ feat-auth│  ────────────────────────────────────────────    │
-│     design ● │  [WYSIWYG Editor — click anywhere to edit]       │
-│     api-spec │  (Mermaid renders inline, [[links]] clickable)   │
-│   mentor-note├──────────────────────────────────────────────────┤
-│              │  SUB-PAGES: design  api-spec  [+ New sub-page]   │
-│ ▼ personal   │  BACKLINKS: ← roadmap  ← internship/index       │
-└──────────────┴──────────────────────────────────────────────────┘
-```
+- Web: password login (rate limited, 30-day `Secure`/`HttpOnly`/`SameSite=Lax` cookie).
+  CSRF header on writes, CSP, and sanitized markdown (agents can write pages, so rendered
+  HTML is sanitized with DOMPurify).
+- Tokens: `fst_...`, stored hashed; `read` or `write`; optional vault limit and expiry;
+  revocable on `/admin`. Tokens can't reach admin endpoints or the UI.
+- OAuth 2.1 (PKCE, dynamic registration) only for connectors; the tokens it issues are
+  normal revocable tokens.
+- `ai: readonly` in a page's (or folder's `index.md`) frontmatter blocks all token writes
+  there; your web session can still edit.
+- Audit log (`/admin`): logins, failures, every token/API/MCP call, git pushes, token changes.
+- Container: non-root, read-only root filesystem, no capabilities, bound to the VPN IP only.
 
-### Keyboard shortcuts
+## Features at a glance
 
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+K` | Quick capture — drop a note or create a page anywhere |
-| `Ctrl+/` | Search all pages |
-| `Ctrl+S` | Save current page |
-| `Esc` | Exit edit mode / close modal |
-| Click content | Enter WYSIWYG edit mode |
+Daily notes (`journal/YYYY-MM-DD.md`, `T` key), templates (`forest:_templates/*.md`,
+`{{title}} {{date}} {{time}} {{weekday}}`), `[[`/`#` autocomplete, unlinked mentions with
+one-click linking, attachments (drag/paste; PDFs searchable), local graph, outline and
+`[[page#heading]]`, calendar + `.ics` feed (`/api/calendar.ics?token=<read token>`),
+ntfy reminders (daily digest, weekly overview, per-page `remind:` with done/snooze
+buttons), web clipper (bookmarklet on `/admin`, Android share target via the installable
+PWA, optional article snapshot), permalinks (`/#vault/path`, `/tasks#vault/path`).
 
-### Quick capture (Ctrl+K)
-
-The fastest way to capture a mentor tip or fleeting idea:
-
-1. Press `Ctrl+K`
-2. Type a title or note
-3. Fuzzy-search for the target page
-4. Choose **New child page** or **Append note**
-5. Press Enter
-
-### Page references (`[[wikilinks]]`)
-
-Link to any page from any other page:
-
-```markdown
-See [[internship/feature-auth/design]]    ← root-relative (absolute)
-Also see [[./api-spec]]                   ← relative to current page
-Or [[../mentor-notes]]                    ← relative parent traversal
-```
-
-Links render as clickable anchors in view mode and appear in the **Backlinks** panel of the target page.
-
-### Mermaid diagrams
-
-Use a `mermaid` code fence anywhere in a page:
-
-````markdown
-```mermaid
-graph TD
-  A[Research] --> B[Prototype]
-  B --> C[Review with mentor]
-  C --> D[Ship]
-```
-````
-
-Diagrams render inline in view mode.
-
----
-
-## CLI reference
+## Local development
 
 ```sh
-tasks add PARENT NAME [--priority high|medium|low] [--due YYYY-MM-DD] [--folder]
-tasks list [PARENT]
-tasks show PAGE_PATH
-tasks state PAGE_PATH STATE
-tasks done PAGE_PATH
-tasks mv PAGE_PATH NEW_PARENT
-tasks note PAGE_PATH "Note text"
-tasks search QUERY
-tasks edit PAGE_PATH       # opens $EDITOR
-tasks rm PAGE_PATH
-tasks serve [--config FILE] [--host HOST] [--port PORT] [--reload]
-tasks tui
+bash install.sh && ./start.sh          # http://127.0.0.1:7000, data in ~/org/forest-data
 ```
 
-**States**: `todo` `in-progress` `blocked` `waiting` `done`
-**Priorities**: `high` `medium` `low`
-**Page path**: root-relative path, e.g. `internship/feature-auth/design.md`
+Configuration: environment variables (see `.env.example`), or `forest.toml`
+(see `config.sample.toml`). Env wins.
 
-### Examples
+## Tests
 
 ```sh
-# Create a root-level folder-page
-tasks add . "Internship" --folder
-
-# Create a child page with task metadata
-tasks add internship/index.md "Feature Auth" --priority high --due 2026-04-30 --folder
-
-# Add a leaf page under a folder
-tasks add internship/feature-auth/index.md "Design Doc"
-
-# Quick note from the terminal (e.g. mentor said something)
-tasks note internship/mentor-notes.md "Check the OAuth PKCE flow — mentor suggestion"
-
-# Search across all pages
-tasks search "OAuth"
-
-# Mark done
-tasks done internship/feature-auth/design.md
-
-# Open in $EDITOR
-tasks edit internship/feature-auth/design.md
-
-# Serve with an explicit config file
-tasks serve --config ~/my-taskthink.toml
+VIRTUAL_ENV=.venv uv pip install -e ".[dev]"     # pytest + playwright (browser tests need Chromium)
+.venv/bin/python -m pytest -q                     # ~1 min, starts its own throwaway server
+deploy/smoke.sh https://tools.example.com fst_...   # after deploying, through nginx
 ```
 
----
+The end-to-end suite (`tests/`) drives a real server: web auth and attacks (open redirect,
+CSRF, path traversal, XSS, tar-slip), tokens and vault limits, every REST route, every MCP
+tool through the official MCP client, the OAuth connector flow, git clone/push/pull,
+backup/restore, ntfy reminders (fake ntfy server), CLI, TUI, and the web UIs in Chromium.
 
-## REST API
-
-Base URL: `http://localhost:7000`
-
-### Navigation
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/tree` | Full navigation tree |
-| `GET` | `/api/children` | Root-level pages |
-| `GET` | `/api/children/{parent_path}` | Children of a folder-page |
-
-### Page CRUD
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/page/{path}` | Get page (with children list) |
-| `POST` | `/api/pages` | Create page (body: `{name, parent_path, as_folder, state, priority, due, content}`) |
-| `PATCH` | `/api/page/{path}` | Update fields (`name`, `content`, `state`, `priority`, `due`) |
-| `DELETE` | `/api/page/{path}` | Soft-delete |
-| `POST` | `/api/page/{path}/move` | Move to new parent (`{new_parent_path}`) |
-| `POST` | `/api/page/{path}/promote` | Convert leaf page to folder-page |
-
-### Agent-friendly endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/page/{path}/append` | Append timestamped note (`{text}`) |
-| `GET` | `/api/search?q=...` | Full-text search across all pages |
-| `GET` | `/api/page/{path}/backlinks` | Pages that `[[link]]` to this page |
-
-### Agent usage examples
-
-```sh
-# Read the full tree
-curl http://localhost:7000/api/tree
-
-# Get a page
-curl http://localhost:7000/api/page/internship/feature-auth/index.md
-
-# Create a new page under internship
-curl -X POST http://localhost:7000/api/pages \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Research Notes", "parent_path": "internship/index.md"}'
-
-# Append a note (agent writes plan progress)
-curl -X POST http://localhost:7000/api/page/internship/feature-auth/design.md/append \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Reviewed PKCE flow — approved by mentor"}'
-
-# Search for context
-curl "http://localhost:7000/api/search?q=OAuth"
-
-# Get backlinks
-curl http://localhost:7000/api/page/internship/feature-auth/design.md/backlinks
-```
-
----
-
-## Configuration
-
-`tasks.toml` (auto-discovered in project root, or set via `--config` / `TASKS_CONFIG`):
-
-```toml
-[server]
-host = "127.0.0.1"   # "0.0.0.0" to expose on network
-port = 7000
-
-[tasks]
-root = "~/org/taskthink"
-```
-
-**Precedence**: `--config FILE` → `TASKS_CONFIG` env var → `tasks.toml` auto-discovery → `TASKS_ROOT` env var → default
-
----
-
-## Building a portable bundle
-
-```sh
-bash build.sh
-# → dist/taskthink-0.1.0.tar.gz
-```
-
-Deploy on another machine:
-
-```sh
-tar -xzf taskthink-0.1.0.tar.gz
-cd taskthink-0.1.0
-cp config.sample.toml tasks.toml && $EDITOR tasks.toml
-./install.sh
-./run.sh
-# or: ./run.sh --config /path/to/tasks.toml
-```
-
----
-
-## Project structure
-
-```
-taskthink/
-├── tasks/
-│   ├── config.py      # Config loading, slugify, safe_resolve
-│   ├── models.py      # Page, TreeNode (Pydantic)
-│   ├── store.py       # All filesystem CRUD — the only layer that touches disk
-│   ├── api.py         # FastAPI REST endpoints
-│   ├── cli.py         # Typer CLI
-│   └── tui.py         # Textual TUI (legacy, unchanged)
-├── static/
-│   └── index.html     # Single-file SPA (CDN-only, no build step)
-├── pyproject.toml
-├── tasks.toml         # Runtime config (gitignored)
-├── config.sample.toml # Config template
-├── install.sh         # Idempotent setup script
-├── start.sh           # Dev server with hot-reload
-└── build.sh           # Creates portable dist tarball
-```
-
-All task I/O goes through `store.py`. Never read/write page files directly in API or CLI layers.
-
----
-
-## License
-
-MIT

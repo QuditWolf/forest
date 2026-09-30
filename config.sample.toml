@@ -1,19 +1,32 @@
-# TaskThink configuration
-# Copy this file to tasks.toml and adjust to your needs.
-# Environment variables override these values:
-#   TASKS_ROOT        — path to the knowledge base directory
-#   TASKS_HOST        — bind address for the server
-#   TASKS_PORT        — port for the server
-#   FOREST_PASSWORD   — password for the web login gate
-#   SESSION_SECRET    — secret key for signing session cookies
+# forest.toml - optional local config (environment variables override everything here).
+# For Docker use .env instead (see .env.example).
 
 [server]
-host = "0.0.0.0"   # Use "127.0.0.1" for localhost-only
+host = "127.0.0.1"                 # "0.0.0.0" to listen on all interfaces
 port = 7000
+# public_url = "https://tools.example.com"
 
-[tasks]
-root = "~/org/taskthink"  # All pages live here as .md files
+[forest]
+data = "~/org/forest-data"         # vaults/<name>/ + .forest/ (tokens, audit log)
+vaults = "forest,tasks"
+timezone = "UTC"
+# journal = "forest:journal"
+# inbox = "forest:inbox"
+# templates = "forest:_templates"
+# max_upload_mb = 25
 
-# [auth]
-# password = ""           # set to enable password gate; or use FOREST_PASSWORD env var
-# session_secret = ""     # strongly recommended in production; or use SESSION_SECRET env var
+# Point vaults at existing folders instead of <data>/vaults/<name>:
+# [vaults]
+# forest = "~/org/forest"
+# tasks = "~/org/tasks"
+
+[auth]
+# password = ""                    # or FOREST_PASSWORD; unset = no login (localhost only!)
+# session_secret = ""              # or FOREST_SECRET; auto-generated if unset
+
+# [ntfy]
+# url = "https://ntfy.sh"
+# topic = "long-random-topic-name"
+# token = ""
+# digest_time = "08:00"
+# weekly_time = "sun 19:00"

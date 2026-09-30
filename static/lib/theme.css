@@ -1,0 +1,25 @@
+/* Shared forest theme (same variables as the forest web UI). Dark mode follows the
+   forest UI toggle (localStorage f-theme) via body.theme-dark. */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #ffffff; --fg: #000000; --dim: #555555; --border: #aaaaaa; --hl: #f0f0f0;
+  --sidebar-bg: #f8f8f8; --hover-bg: #efefef; --accent: #0066cc; --bad: #cc0000; --warn: #b36b00; --ok: #2a8a2a;
+  --font: Menlo, Consolas, "DejaVu Sans Mono", monospace; --sz: 13px;
+}
+body.theme-dark {
+  --bg: #0f0f0f; --fg: #e8e8e8; --dim: #666666; --border: #2a2a2a; --hl: #1a1a1a;
+  --sidebar-bg: #141414; --hover-bg: #222222; --accent: #4da3ff; --bad: #ff6b6b; --warn: #e3b341; --ok: #3fb950;
+}
+body { font-family: var(--font); font-size: var(--sz); background: var(--bg); color: var(--fg); }
+input, select, textarea, button { font-family: var(--font); font-size: 12px; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--border); padding: 3px 6px; outline: none; }
+input:focus, select:focus, textarea:focus { border-color: var(--fg); }
+button { cursor: pointer; }
+button:hover { background: var(--hl); }
+button.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+button.primary:hover { opacity: .85; }
+button.danger:hover { color: var(--bad); border-color: var(--bad); }
+a { color: var(--fg); }
+.dim { color: var(--dim); }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: var(--border); }
