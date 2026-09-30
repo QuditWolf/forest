@@ -5,7 +5,7 @@ description = "Personal knowledge base + task planner: markdown vaults in git, w
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115",
-  "uvicorn[standard]",
+  "uvicorn[standard]>=0.30",
   "typer",
   "rich",
   "textual>=1.0",
