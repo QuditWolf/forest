@@ -17,8 +17,18 @@ services:
       # Bind to the homeserver's VPN address so only nginx (over the VPN) can reach it.
       - "${BIND_IP:-127.0.0.1}:${PORT:-7700}:7000"
     volumes:
-      - ${VAULTS_DIR:?set VAULTS_DIR in .env}:/data/vaults
-      - ${STATE_DIR:?set STATE_DIR in .env}:/data/.forest
+      # create_host_path: false -> refuse to start if the folders don't exist (e.g. a data disk
+      # that isn't mounted yet) instead of silently creating empty ones on the wrong disk.
+      - type: bind
+        source: ${VAULTS_DIR:?set VAULTS_DIR in .env}
+        target: /data/vaults
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${STATE_DIR:?set STATE_DIR in .env}
+        target: /data/.forest
+        bind:
+          create_host_path: false
     read_only: true
     tmpfs:
       - /tmp
