@@ -137,10 +137,26 @@ def test_forest_ui_features(page, server, web):
     page.click(".page-actions button:text-is('hist')"); settle(page, 800)
     assert len(page.query_selector_all(".hist-row")) >= 3
     page.keyboard.press("Escape")
-    # graph
+    # graph explorer: starts with direct neighbours; click expands, click again collapses
+    web.post("/api/forest/pages", json={"name": "G Folder", "as_folder": True})
+    web.post("/api/forest/pages", json={"name": "G Child", "parent_path": "g-folder/index.md", "content": "[[ui-hub]]"})
+    web.post("/api/forest/pages", json={"name": "G Sibling", "parent_path": "g-folder/index.md"})
     page.click(".page-actions button:text-is('graph')"); settle(page, 2500)
-    assert len(page.query_selector_all("#graph-box g.node")) >= 2
-    page.keyboard.press("Escape")
+    n0 = len(page.query_selector_all("#graph-box g.node"))
+    assert n0 >= 3   # ui-hub, tasks:ui-task (link), g-child (backlink)
+    child = page.locator("#graph-box g.node", has_text="G Child").first
+    child.click(); settle(page, 2000)
+    labels = page.inner_text("#graph-box")
+    assert "G Folder/" in labels                            # parent pulled in via hierarchy
+    n1 = len(page.query_selector_all("#graph-box g.node"))
+    assert n1 > n0
+    page.locator("#graph-box g.node", has_text="G Child").first.click(); settle(page, 2000)
+    assert len(page.query_selector_all("#graph-box g.node")) == n0 and "G Folder/" not in page.inner_text("#graph-box")
+    page.uncheck("#g-links"); settle(page, 1500)          # hide link edges -> no dotted edges
+    page.check("#g-links"); settle(page, 1500)
+    page.locator("#graph-box g.node", has_text="G Child").first.dblclick(); settle(page, 1200)
+    assert page.url.endswith("#forest/g-folder/g-child.md")
+    page.goto(server.base + "/#forest/ui-hub.md"); settle(page, 1200)
     # today + day stepping
     page.evaluate("document.activeElement.blur()")
     page.keyboard.press("t"); settle(page, 1200)

@@ -50,7 +50,7 @@ through the `forest` MCP tools (or the REST API at `/api`).
 | `grep` | exact patterns, frontmatter queries | regex over raw files, `glob=` for paths, `context=` lines |
 | `find` | locate files by name/path glob | `*meeting*`, `projects/**/index.md` |
 | `links` | outgoing, backlinks, unlinked mentions | mentions = pages naming it without a link |
-| `graph` | how things connect | nodes/edges, `depth` hops, across vaults |
+| `graph` | how things connect | nodes + edges of kind `child` (hierarchy) or `link`, `depth` hops, across vaults |
 | `tags` | tag list or pages with a tag | hierarchical |
 | `agenda` | task lists | `state`, `priority`, `due_within`, `overdue`, `tag`, `under`, `vault` |
 | `review` | daily/weekly bundle | overdue, due soon, in progress, stale, done, inbox, changes (you vs agents) |

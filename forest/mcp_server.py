@@ -267,11 +267,13 @@ def links(ref: str, vault: Optional[str] = None) -> str:
 
 
 @tool(RO)
-def graph(ref: Optional[str] = None, vault: Optional[str] = None, depth: int = 2) -> str:
-    """Link graph around a page: nodes (vault:path, name, state) and edges (from → to), following
-    links and backlinks `depth` hops across vaults. Without ref: the whole vault (can be large)."""
+def graph(ref: Optional[str] = None, vault: Optional[str] = None, depth: int = 2, hierarchy: bool = True) -> str:
+    """Graph around a page: nodes (vault:path, name, state, is_folder) and edges (from, to, kind) where
+    kind is "child" (parent folder-page -> child page) or "link" ([[wikilink]] from -> to). Follows
+    links, backlinks and (hierarchy=True) parents/children `depth` hops across vaults.
+    Without ref: the whole vault (can be large)."""
     v, p = _vault_for(ref, vault) if ref else (_check_vault(vault), None)
-    g = features.graph(v.name, p or None, depth)
+    g = features.graph(v.name, p or None, depth, hierarchy)
     pr = auth.principal.get()
     g["nodes"] = [n for n in g["nodes"] if pr.can_access(n["vault"])]
     keep = {n["id"] for n in g["nodes"]}

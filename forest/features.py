@@ -324,8 +324,21 @@ def link_mention(src_vault: str, src_path: str, target_vault: str, target_path: 
 
 # ── Link graph ────────────────────────────────────────────────────────────────
 
-def link_index() -> Tuple[List[Tuple[str, str]], dict]:
-    """All resolved links as ('vault:path' → 'vault:path') edges, plus node info."""
+def _parent_key(v: store.Vault, md: Path) -> Optional[str]:
+    """'vault:path' of the folder-page that contains this page, if any."""
+    root = v.root.resolve()
+    d = md.resolve().parent
+    if md.name == "index.md":
+        d = d.parent
+    if d == root or not d.is_relative_to(root):
+        return None
+    idx = d / "index.md"
+    return f"{v.name}:{v.rel(idx)}" if idx.exists() else None
+
+
+def link_index(hierarchy: bool = True) -> Tuple[List[Tuple[str, str, str]], dict]:
+    """All edges as (from, to, kind) with 'vault:path' ids. kind: 'child' (parent -> child page)
+    or 'link' (a [[wikilink]] from -> to). Plus node info."""
     edges, nodes = [], {}
     for v in store.VAULTS.values():
         for md in v.iter_md():
@@ -335,39 +348,86 @@ def link_index() -> Tuple[List[Tuple[str, str]], dict]:
                 post = frontmatter.loads(md.read_text(encoding="utf-8"))
             except Exception:
                 continue
-            nodes[key] = {"id": key, "vault": v.name, "path": rel,
-                          "name": str(post.metadata.get("name") or (md.parent.name if md.name == "index.md" else md.stem)),
-                          "state": post.metadata.get("state")}
+            nodes[key] = _node_info(v, md, rel, post.metadata)
+            if hierarchy:
+                parent = _parent_key(v, md)
+                if parent:
+                    edges.append((parent, key, "child"))
             for ref in store.link_refs(post.content):
                 try:
                     tv, tp = store.resolve_link(ref, v.name, rel)
                     if (tv, tp) != (v.name, rel):
-                        edges.append((key, f"{tv}:{tp}"))
+                        edges.append((key, f"{tv}:{tp}", "link"))
                 except Exception:
                     pass
     return edges, nodes
 
 
-def graph(vname: str, path: Optional[str] = None, depth: int = 2) -> dict:
-    """Local graph around a page (links + backlinks, `depth` hops, across vaults).
-    Without path: the whole vault."""
-    edges, nodes = link_index()
+def _node_info(v: store.Vault, md: Path, rel: str, meta: dict) -> dict:
+    is_folder = md.name == "index.md" and md.parent.resolve() != v.root.resolve()
+    return {"id": f"{v.name}:{rel}", "vault": v.name, "path": rel, "is_folder": is_folder,
+            "name": str(meta.get("name") or (md.parent.name if md.name == "index.md" else md.stem)),
+            "state": meta.get("state")}
+
+
+def graph(vname: str, path: Optional[str] = None, depth: int = 2, hierarchy: bool = True) -> dict:
+    """Graph around a page: `depth` hops over links, backlinks and (if hierarchy) parent/children,
+    across vaults. Without path: the whole vault. Edges carry kind 'child' or 'link'."""
+    edges, nodes = link_index(hierarchy)
+    center = None
     if path is None:
         keep = {k for k in nodes if k.startswith(vname + ":")}
     else:
-        start = f"{vname}:{store.vault(vname).get_page(path).path}"
+        center = f"{vname}:{store.vault(vname).get_page(path).path}"
         adj: dict = {}
-        for a, b in edges:
+        for a, b, _ in edges:
             adj.setdefault(a, set()).add(b)
             adj.setdefault(b, set()).add(a)
-        keep, frontier = {start}, {start}
+        keep, frontier = {center}, {center}
         for _ in range(max(1, min(depth, 4))):
             frontier = {n for f in frontier for n in adj.get(f, ())} - keep
             keep |= frontier
-    e = sorted({(a, b) for a, b in edges if a in keep and b in keep})
-    return {"center": None if path is None else f"{vname}:{store.vault(vname).get_page(path).path}",
-            "nodes": [nodes[k] for k in sorted(keep) if k in nodes],
-            "edges": [{"from": a, "to": b} for a, b in e]}
+    e = sorted({(a, b, k) for a, b, k in edges if a in keep and b in keep})
+    return {"center": center, "nodes": [nodes[k] for k in sorted(keep) if k in nodes],
+            "edges": [{"from": a, "to": b, "kind": k} for a, b, k in e]}
+
+
+def neighbors(vname: str, path: str) -> dict:
+    """One page plus its direct neighbourhood: parent, children, outgoing links, backlinks.
+    Used by the web UI to expand a node in the graph explorer."""
+    v = store.vault(vname)
+    page = v.get_page(path)
+    key = f"{vname}:{page.path}"
+    nodes: dict = {}
+    edges: list = []
+
+    def add(vn: str, p: str) -> Optional[str]:
+        try:
+            vv = store.vault(vn)
+            md = vv.safe_resolve(p)
+            post = frontmatter.loads(md.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        k = f"{vn}:{p}"
+        nodes[k] = _node_info(vv, md, p, post.metadata)
+        return k
+
+    add(vname, page.path)
+    if page.parent_path:
+        if add(vname, page.parent_path):
+            edges.append((f"{vname}:{page.parent_path}", key, "child"))
+    for c in page.children:
+        if add(vname, c):
+            edges.append((key, f"{vname}:{c}", "child"))
+    for link in store.outgoing_links(vname, page.path):
+        if link["exists"] and add(link["vault"], link["path"]):
+            edges.append((key, f"{link['vault']}:{link['path']}", "link"))
+    for ref in store.get_backlinks(vname, page.path):
+        bv, bp = ref.split(":", 1)
+        if add(bv, bp):
+            edges.append((ref, key, "link"))
+    return {"center": key, "nodes": list(nodes.values()),
+            "edges": [{"from": a, "to": b, "kind": k} for a, b, k in dict.fromkeys(edges)]}
 
 
 # ── Attachments ───────────────────────────────────────────────────────────────

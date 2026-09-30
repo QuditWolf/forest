@@ -823,13 +823,26 @@ def link_mention(vault: str, path: str, body: LinkMention):
         return features.link_mention(body.source_vault, body.source_path, vault, path)
 
 
-@app.get("/api/{vault}/graph")
-@app.get("/api/{vault}/graph/{path:path}")
-def get_graph(vault: str, path: Optional[str] = None, depth: int = 2):
-    """Local link graph around a page (or the whole vault without path)."""
+@app.get("/api/{vault}/neighbors/{path:path}")
+def get_neighbors(vault: str, path: str):
+    """A page and its direct neighbours (parent, children, links, backlinks) - for graph expand."""
     V(vault)
     with _errors():
-        g = features.graph(vault, path or None, depth)
+        g = features.neighbors(vault, path)
+    p = auth.principal.get()
+    g["nodes"] = [n for n in g["nodes"] if p.can_access(n["vault"])]
+    keep = {n["id"] for n in g["nodes"]}
+    g["edges"] = [e for e in g["edges"] if e["from"] in keep and e["to"] in keep]
+    return g
+
+
+@app.get("/api/{vault}/graph")
+@app.get("/api/{vault}/graph/{path:path}")
+def get_graph(vault: str, path: Optional[str] = None, depth: int = 2, hierarchy: bool = True):
+    """Graph around a page (or the whole vault without path): links, backlinks and parent/children."""
+    V(vault)
+    with _errors():
+        g = features.graph(vault, path or None, depth, hierarchy)
     p = auth.principal.get()
     g["nodes"] = [n for n in g["nodes"] if p.can_access(n["vault"])]
     keep = {n["id"] for n in g["nodes"]}

@@ -168,8 +168,24 @@ def test_graph_outline_section(agent, server, web):
     g = agent.get("/api/forest/graph/hub.md", params={"depth": 2}).json()
     ids = {n["id"] for n in g["nodes"]}
     assert {"forest:hub.md", "forest:spoke.md", "tasks:far.md"} <= ids and g["center"] == "forest:hub.md"
-    g1 = agent.get("/api/forest/graph/hub.md", params={"depth": 1}).json()
+    g1 = agent.get("/api/forest/graph/hub.md", params={"depth": 1, "hierarchy": False}).json()
     assert "tasks:far.md" not in {n["id"] for n in g1["nodes"]}
+    assert {e["kind"] for e in g1["edges"]} == {"link"}
+    # hierarchy: folder with children shows parent -> child edges
+    agent.post("/api/forest/pages", json={"name": "Tree Root", "as_folder": True})
+    agent.post("/api/forest/pages", json={"name": "Leaf One", "parent_path": "tree-root/index.md", "content": "[[hub]]"})
+    agent.post("/api/forest/pages", json={"name": "Leaf Two", "parent_path": "tree-root/index.md"})
+    gt = agent.get("/api/forest/graph/tree-root/index.md", params={"depth": 1}).json()
+    kinds = {(e["from"], e["to"], e["kind"]) for e in gt["edges"]}
+    assert ("forest:tree-root/index.md", "forest:tree-root/leaf-one.md", "child") in kinds
+    assert ("forest:tree-root/index.md", "forest:tree-root/leaf-two.md", "child") in kinds
+    nb = agent.get("/api/forest/neighbors/tree-root/leaf-one.md").json()
+    nk = {(e["from"], e["to"], e["kind"]) for e in nb["edges"]}
+    assert ("forest:tree-root/index.md", "forest:tree-root/leaf-one.md", "child") in nk     # parent
+    assert ("forest:tree-root/leaf-one.md", "forest:hub.md", "link") in nk                 # outgoing link
+    assert next(n for n in nb["nodes"] if n["id"] == "forest:tree-root/index.md")["is_folder"] is True
+    nb_hub = agent.get("/api/forest/neighbors/hub.md").json()
+    assert ("forest:tree-root/leaf-one.md", "forest:hub.md", "link") in {(e["from"], e["to"], e["kind"]) for e in nb_hub["edges"]}  # backlink
     # vault-limited token doesn't see other vault nodes
     tok = bearer(server, web.post("/api/admin/tokens", json={"name": "fo", "vaults": ["forest"]}).json()["token"])
     assert "tasks:far.md" not in {n["id"] for n in tok.get("/api/forest/graph/hub.md").json()["nodes"]}

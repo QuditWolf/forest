@@ -1000,9 +1000,13 @@ body.mode-modern .toastui-editor-contents {
 <div class="overlay" id="graph-overlay" onclick="if(event.target===this)closeGraph()">
   <div class="modal" style="width:900px;max-width:96vw">
     <div class="modal-head">
-      <span>local graph</span>
-      <span style="font-weight:normal;font-size:12px">depth
-        <select id="graph-depth" class="meta-sel" onchange="openGraph()"><option>1</option><option selected>2</option><option>3</option></select>
+      <span>graph</span>
+      <span style="font-weight:normal;font-size:12px;display:flex;gap:10px;align-items:center">
+        <label><input type="checkbox" id="g-tree" checked onchange="drawGraph()"> tree</label>
+        <label><input type="checkbox" id="g-links" checked onchange="drawGraph()"> links</label>
+        <select id="g-dir" class="meta-sel" onchange="drawGraph()" title="layout"><option value="TD">top-down</option><option value="LR">left-right</option></select>
+        <a class="footer-link" onclick="expandAllVisible()">expand all</a>
+        <a class="footer-link" onclick="openGraph()">reset</a>
         <button class="modal-x" onclick="closeGraph()">x</button></span>
     </div>
     <div class="modal-body"><div id="graph-box" style="overflow:auto;max-height:70vh"></div></div>
@@ -2219,45 +2223,110 @@ function scrollToHeading(h) {
   document.getElementById('h-' + headingSlug(h))?.scrollIntoView({ block: 'start' });
 }
 
-// ── Local graph ───────────────────────────────────────────────────────────────
+// ── Graph explorer: hierarchy + links, click to expand / collapse ───────────
 const VAULT_COLORS = [['#e8f0fe', '#3b6fd4'], ['#e6f4ea', '#2f8a4c'], ['#fef3e0', '#c77700'], ['#f3e8fd', '#7b3fb8'], ['#fde8e8', '#c43b3b']];
+const G = { nodes: new Map(), edges: new Map(), expanded: new Set(), owner: new Map(), center: null, busy: false };
+const G_MAX = 150;
+
 async function openGraph() {
   if (!S.path) return;
+  G.nodes.clear(); G.edges.clear(); G.expanded.clear(); G.owner.clear();
+  G.center = S.vault + ':' + S.path;
+  G.owner.set(G.center, new Set(['__root']));
   document.getElementById('graph-overlay').classList.add('open');
+  document.getElementById('graph-box').innerHTML = '<div style="color:var(--dim)">loading...</div>';
+  await expandNode(G.center);
+}
+
+async function expandNode(id) {
+  const i = id.indexOf(':');
+  const r = await api(vp('neighbors/' + enc(id.slice(i + 1)), id.slice(0, i)));
+  for (const n of r.nodes) {
+    if (!G.nodes.has(n.id)) {
+      if (G.nodes.size >= G_MAX) continue;
+      G.nodes.set(n.id, n);
+      if (!G.owner.has(n.id)) G.owner.set(n.id, new Set());
+    }
+    if (n.id !== id) G.owner.get(n.id)?.add(id);
+  }
+  for (const e of r.edges) if (G.nodes.has(e.from) && G.nodes.has(e.to)) G.edges.set(e.from + '|' + e.to + '|' + e.kind, e);
+  G.expanded.add(id);
+  drawGraph();
+}
+
+function collapseNode(id) {
+  G.expanded.delete(id);
+  for (const owners of G.owner.values()) owners.delete(id);
+  let changed = true;
+  while (changed) {            // drop nodes nobody holds anymore (cascading through their expansions)
+    changed = false;
+    for (const [n, owners] of [...G.owner]) {
+      if (n === G.center || owners.size) continue;
+      G.owner.delete(n); G.nodes.delete(n);
+      if (G.expanded.delete(n)) for (const o of G.owner.values()) o.delete(n);
+      changed = true;
+    }
+  }
+  for (const [k, e] of [...G.edges]) if (!G.nodes.has(e.from) || !G.nodes.has(e.to)) G.edges.delete(k);
+  drawGraph();
+}
+
+async function expandAllVisible() {
+  for (const id of [...G.nodes.keys()]) {
+    if (G.nodes.size >= G_MAX) break;
+    if (!G.expanded.has(id)) await expandNode(id);
+  }
+}
+
+async function drawGraph() {
   const box = document.getElementById('graph-box');
-  box.innerHTML = '<div style="color:var(--dim)">loading...</div>';
-  const depth = document.getElementById('graph-depth').value;
-  const g = await api(vp('graph/' + enc(S.path)) + '?depth=' + depth);
-  if (g.nodes.length <= 1) { box.innerHTML = '<div style="color:var(--dim)">no links yet</div>'; return; }
-  const ids = {};
-  g.nodes.forEach((n, i) => ids[n.id] = 'n' + i);
+  const showTree = document.getElementById('g-tree').checked, showLinks = document.getElementById('g-links').checked;
+  const ids = {}; let k = 0;
+  for (const id of G.nodes.keys()) ids[id] = 'n' + (k++);
   const q = s => String(s).replace(/"/g, '#quot;').replace(/[<>]/g, '');
-  const lines = ['graph LR'];
-  g.nodes.forEach(n => {
-    const label = (n.vault !== S.vault ? n.vault + ': ' : '') + n.name + (n.state ? ' ' + (SYM[n.state] || '') : '');
+  const lines = ['graph ' + document.getElementById('g-dir').value];
+  for (const [id, n] of G.nodes) {
+    const label = (n.vault !== S.vault ? n.vault + ': ' : '') + n.name + (n.is_folder ? '/' : '') +
+                  (n.state ? ' ' + (SYM[n.state] || '') : '') + (G.expanded.has(id) ? '' : '  +');
     const vi = Math.max(0, S.vaults.indexOf(n.vault)) % VAULT_COLORS.length;
-    lines.push(`  ${ids[n.id]}["${q(label)}"]:::v${vi}`);
-  });
-  if (ids[g.center]) lines.push(`  class ${ids[g.center]} center`);
-  g.edges.forEach(e => lines.push(`  ${ids[e.from]} --> ${ids[e.to]}`));
-  VAULT_COLORS.forEach(([f, s], i) => lines.push(`  classDef v${i} fill:${f},stroke:${s},color:#111`));
+    lines.push(`  ${ids[id]}["${q(label)}"]:::v${vi}`);
+  }
+  for (const e of G.edges.values()) {
+    if (e.kind === 'child' && showTree) lines.push(`  ${ids[e.from]} ==> ${ids[e.to]}`);
+    if (e.kind === 'link' && showLinks) lines.push(`  ${ids[e.from]} -.-> ${ids[e.to]}`);
+  }
+  VAULT_COLORS.forEach(([f, st], i) => lines.push(`  classDef v${i} fill:${f},stroke:${st},color:#111`));
+  if (ids[G.center]) lines.push(`  class ${ids[G.center]} center`);
   lines.push('  classDef center stroke-width:3px');
   const legend = S.vaults.map((v, i) => `<span style="border-left:10px solid ${VAULT_COLORS[i % VAULT_COLORS.length][1]};padding-left:4px;margin-right:12px">${esc(v)}</span>`).join('');
+  const full = G.nodes.size >= G_MAX ? ` · <b>limit of ${G_MAX} nodes reached</b>` : '';
   try {
     await loadMermaid();
     const { svg } = await mermaid.render('graph-' + Date.now(), lines.join('\n'));
-    box.innerHTML = `<div style="font-size:11px;color:var(--dim);margin-bottom:6px">${legend} · click a node to open</div>` + svg;
-    const byId = Object.fromEntries(Object.entries(ids).map(([k, v]) => [v, k]));
+    box.innerHTML = `<div style="font-size:11px;color:var(--dim);margin-bottom:6px">${legend}` +
+      ` · thick = parent/child, dotted = link · click: expand / collapse (+ = more) · double-click: open${full}</div>` + svg;
+    const byId = Object.fromEntries(Object.entries(ids).map(([key, v]) => [v, key]));
     box.querySelectorAll('g.node').forEach(el => {
       const m = el.id.match(/-(n\d+)-/);
       if (!m || !byId[m[1]]) return;
+      const key = byId[m[1]];
       el.style.cursor = 'pointer';
-      el.addEventListener('click', () => {
-        const key = byId[m[1]], i = key.indexOf(':');
-        closeGraph(); navTo(key.slice(i + 1), key.slice(0, i));
+      el.dataset.key = key;
+      let t = null;
+      el.addEventListener('click', ev => {
+        if (ev.shiftKey) { openGraphNode(key); return; }
+        clearTimeout(t);
+        t = setTimeout(() => G.expanded.has(key) && key !== G.center ? collapseNode(key)
+                              : G.expanded.has(key) ? null : expandNode(key), 220);
       });
+      el.addEventListener('dblclick', () => { clearTimeout(t); openGraphNode(key); });
     });
   } catch (e) { box.textContent = 'graph error: ' + e.message; }
+}
+
+function openGraphNode(key) {
+  const i = key.indexOf(':');
+  closeGraph(); navTo(key.slice(i + 1), key.slice(0, i));
 }
 function closeGraph() { document.getElementById('graph-overlay').classList.remove('open'); }
 
