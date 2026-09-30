@@ -78,7 +78,12 @@ COOKIE_SECURE: bool | None = None if _cs == "auto" else _bool(_cs)
 AUTOCOMMIT = _bool(_get("forest", "autocommit", "FOREST_AUTOCOMMIT", "1"))
 
 # Timezone for daily notes, reminders and digests (IANA name, e.g. "Europe/Berlin")
-TIMEZONE = str(_get("forest", "timezone", "FOREST_TZ", os.environ.get("TZ") or "UTC"))
+TIMEZONE = str(_get("forest", "timezone", "FOREST_TZ", os.environ.get("TZ") or "UTC")).strip()
+try:
+    __import__("zoneinfo").ZoneInfo(TIMEZONE)
+except Exception:
+    raise SystemExit(f"FOREST_TZ must be an IANA timezone name like Asia/Kolkata, Europe/Berlin or UTC "
+                     f"(got {TIMEZONE!r}; abbreviations like IST/EST are ambiguous and not accepted).")
 # Make date.today() / datetime.now() (created/completed stamps, git dates) follow the same timezone
 if TIMEZONE and os.environ.get("TZ") != TIMEZONE and hasattr(__import__("time"), "tzset"):
     os.environ["TZ"] = TIMEZONE

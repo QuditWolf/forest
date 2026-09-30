@@ -151,3 +151,13 @@ def test_cookie_secure_follows_scheme(server):
     # and the plain-http session actually works for the UI + API
     assert c.get("/api/me").json()["kind"] == "session"
     assert c.get("/", follow_redirects=False).status_code == 200
+
+
+def test_bad_timezone_gives_clear_error(tmp_path):
+    import os, subprocess, sys
+    from conftest import ROOT
+    env = {**os.environ, "FOREST_CONFIG": "/dev/null", "FOREST_DATA": str(tmp_path), "FOREST_PASSWORD": "x",
+           "FOREST_TZ": "IST", "PYTHONPATH": str(ROOT)}
+    r = subprocess.run([sys.executable, "-m", "uvicorn", "forest.api:app", "--port", "1"], env=env, cwd=ROOT,
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode != 0 and "Asia/Kolkata" in r.stderr and "Traceback" not in r.stderr.split("FOREST_TZ")[0][-300:]
