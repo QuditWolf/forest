@@ -24,7 +24,7 @@ import frontmatter
 import yaml as _yaml
 
 from . import gitrepo
-from .config import AUTOCOMMIT, VALID_PRIORITIES, VALID_STATES, slugify, vault_paths
+from .config import AUTOCOMMIT, TASK_VAULTS, VALID_PRIORITIES, VALID_STATES, slugify, vault_paths
 from .models import Page, TreeNode
 
 
@@ -132,6 +132,11 @@ def _validate_meta(state: Optional[str], priority: Optional[str]) -> None:
         raise ValueError(f"Invalid priority {priority!r}. Choose: {VALID_PRIORITIES}")
 
 
+_TASK_FIELDS = ("state", "priority", "due", "completed")
+FLAT_MSG = ("tasks are flat: put a task at the vault root or in a category (top-level folder). "
+            "Organise bigger work in a forest page that links [[tasks:...]] or lists them with a ```tasks block.")
+
+
 # ── Vault ─────────────────────────────────────────────────────────────────────
 
 
@@ -142,6 +147,30 @@ class Vault:
         self.name = name
         self.root = root.expanduser()
         self.lock = threading.RLock()
+
+    @property
+    def is_tasks(self) -> bool:
+        """Task vault (state/priority/due, flat categories) vs knowledge vault (no task fields)."""
+        return self.name in TASK_VAULTS
+
+    def _check_task_fields(self, meta: dict) -> None:
+        if self.is_tasks:
+            return
+        used = [k for k in _TASK_FIELDS if meta.get(k) not in (None, "")]
+        if used:
+            tv = TASK_VAULTS[0] if TASK_VAULTS else "tasks"
+            raise ValueError(f"'{self.name}' is a knowledge vault: {', '.join(used)} only exist on tasks. "
+                             f"Create the task in the '{tv}' vault and link it here with [[{tv}:category/task]].")
+
+    def _check_flat(self, parent_path: Optional[str], as_folder: bool = False) -> None:
+        """Task vaults: pages live at the root or directly in a category; categories only at the root."""
+        if not self.is_tasks:
+            return
+        if parent_path is None:
+            return
+        parent = self.get_page(parent_path)
+        if as_folder or not parent.is_folder or parent.path.count("/") != 1:
+            raise ValueError(FLAT_MSG)
 
     # ── paths ──
 
@@ -465,6 +494,8 @@ class Vault:
             t_meta.pop("due", None)
             extra = {**{k: v for k, v in t_meta.items() if k not in _KNOWN_META}, **(extra or {})}
         _validate_meta(state, priority)
+        self._check_task_fields({"state": state, "priority": priority, "due": due})
+        self._check_flat(parent_path, as_folder)
         self._guard(parent_path)
         slug = slugify(name)
 
@@ -511,6 +542,7 @@ class Vault:
     def update_page(self, path: str, expected_sha: Optional[str] = None, **fields) -> Page:
         """Update fields (name, content, state, priority, due, tags, extra) and write back."""
         _validate_meta(fields.get("state"), fields.get("priority"))
+        self._check_task_fields(fields)
 
         def op():
             page = self.get_page(path)
@@ -549,6 +581,9 @@ class Vault:
         except Exception as e:
             raise ValueError(f"Invalid frontmatter: {e}")
         _validate_meta(post.metadata.get("state"), post.metadata.get("priority"))
+        self._check_task_fields(post.metadata)
+        if self.is_tasks and path.strip("/").count("/") > 1:   # root task, category/task.md or category/index.md
+            raise ValueError(FLAT_MSG)
 
         def op():
             abs_path = self.safe_resolve(path)
@@ -616,6 +651,9 @@ class Vault:
         def op():
             page = self.get_page(path)
             self._guard(page.path, new_parent_path)
+            if page.is_folder and self.is_tasks:
+                raise ValueError("categories can't be moved into other folders (tasks are flat)")
+            self._check_flat(new_parent_path)
             src = self._page_fs_node(page)
             if new_parent_path is None:
                 dest_dir = self.root
@@ -656,6 +694,8 @@ class Vault:
     def promote_to_folder(self, path: str) -> Page:
         """Convert a leaf page to a folder-page (moves content into dir/index.md)."""
         path = self.get_page(path).path
+        if self.is_tasks:
+            raise ValueError(FLAT_MSG)
         self._guard(path)
         return self._mutate(f"promote {path}", lambda: self._promote(path))
 
@@ -1015,6 +1055,12 @@ def _summary(p: Page) -> dict:
             "completed": p.completed.isoformat() if p.completed else None}
 
 
+def task_vaults(vaults: Optional[str] = None) -> Optional[str]:
+    """Restrict a vault selection to task vaults (agenda, review, digest, calendar only look at tasks)."""
+    names = [v.name for v in _selected(vaults) if v.is_tasks]
+    return ",".join(names) if names else "__none__"
+
+
 def agenda(
     vaults: Optional[str] = None,
     state: str = "undone",
@@ -1031,7 +1077,8 @@ def agenda(
     today = date.today()
     cutoff = parse_due_window(due_within) if due_within else None
     out = []
-    for v in _selected(vaults):
+    vaults = task_vaults(vaults)
+    for v in [] if vaults == "__none__" else _selected(vaults):
         for p in v.all_pages():
             if p.state is None:
                 continue

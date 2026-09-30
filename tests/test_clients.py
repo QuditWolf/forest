@@ -84,6 +84,9 @@ def test_tui(server, cli):
     from forest.tui import ForestTUI
     from textual.widgets import Markdown, Static, Tree
 
+    cli("add", "tasks:.", "TUI Task", "-s", "todo")
+    cli("add", "tasks:.", "TUI Cat", "-f")
+
     async def go():
         app = ForestTUI()
         async with app.run_test(size=(140, 40)) as pilot:
@@ -92,19 +95,19 @@ def test_tui(server, cli):
             await pilot.press("T"); await pilot.pause(0.5)
             assert app.page["path"].startswith("journal/")
             await pilot.press("slash"); await pilot.pause(0.2)
-            await pilot.press(*"editable"); await pilot.pause(0.6)
+            await pilot.press(*"TUI Task"); await pilot.pause(0.6)
             await pilot.press("enter"); await pilot.pause(0.5)
-            assert app.page["path"] == "editable.md"
+            assert (app.page["vault"], app.page["path"]) == ("tasks", "tui-task.md")
             await pilot.press("s"); await pilot.pause(0.4)
-            assert app.page["state"] == "todo"
+            assert app.page["state"] == "in-progress"
             await pilot.press("x"); await pilot.pause(0.4)
             assert app.page["state"] == "done"
             await pilot.press("a"); await pilot.pause(0.2)
-            await pilot.press(*"from tui [[tasks:cli-cat]]"); await pilot.press("enter"); await pilot.pause(0.5)
+            await pilot.press(*"from tui [[tasks:tui-cat]]"); await pilot.press("enter"); await pilot.pause(0.5)
             assert "from tui" in app.page["content"]
-            app.link_clicked(Markdown.LinkClicked(app.query_one("#body", Markdown), "wiki:tasks:cli-cat"))
+            app.link_clicked(Markdown.LinkClicked(app.query_one("#body", Markdown), "wiki:tasks:tui-cat"))
             await pilot.pause(0.5)
-            assert (app.page["vault"], app.page["path"]) == ("tasks", "cli-cat/index.md")
+            assert (app.page["vault"], app.page["path"]) == ("tasks", "tui-cat/index.md")
             await pilot.press("t"); await pilot.pause(0.5)
             await pilot.press("v"); await pilot.pause(0.3)
             await pilot.press("c"); await pilot.pause(0.2)

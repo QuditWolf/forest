@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
 import uvicorn
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -405,6 +405,7 @@ def me():
     p = auth.principal.get()
     return {"kind": p.kind, "name": p.name, "scope": p.scope, "admin": p.is_admin,
             "vaults": [n for n in store.VAULTS if p.can_access(n)], "default_vault": store.DEFAULT_VAULT,
+            "task_vaults": [n for n, v in store.VAULTS.items() if v.is_tasks and p.can_access(n)],
             "states": VALID_STATES, "priorities": VALID_PRIORITIES}
 
 
@@ -481,6 +482,13 @@ def index(vault: Optional[str] = None):
     pages = [{"vault": v.name, "path": p.path, "name": p.name, "state": p.state, "is_folder": p.is_folder}
              for v in vs for p in v.all_pages()]
     return {"pages": pages, "tags": [t["tag"] for t in store.all_tags(_allowed(vault))]}
+
+
+@app.get("/api/summary")
+def summary(ref: List[str] = Query(default=[]), from_vault: Optional[str] = None):
+    """Live state of linked pages (e.g. [[tasks:...]] in a note): name, state, priority, due."""
+    p = auth.principal.get()
+    return features.summaries(ref, from_vault or store.DEFAULT_VAULT, allowed=p.can_access)
 
 
 @app.get("/api/templates")

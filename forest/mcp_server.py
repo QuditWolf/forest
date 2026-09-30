@@ -23,18 +23,23 @@ from .config import VALID_PRIORITIES, VALID_STATES
 
 INSTRUCTIONS = """\
 Forest is the user's personal knowledge base + task planner: plain Markdown pages with YAML
-frontmatter, in git-versioned *vaults* (usually "forest" = notes/knowledge, "tasks" = task planner).
+frontmatter in git-versioned vaults:
+- "forest" = knowledge (notes, projects, journal, inbox, templates). Pages here are NOT tasks:
+  no state/priority/due. Organise work with ordinary pages: lists/tables of [[tasks:...]] links
+  (they render with live task status) or a ```tasks block (e.g. `tag: alpha`) that lists tasks live.
+- "tasks" = the task planner. Flat: tasks live at the root or in a category (top-level folder).
+  No subtasks - bigger work gets a forest page that links or lists its tasks.
 
-Pages form a tree: "dir/index.md" is a folder-page (can have children), "x.md" is a leaf.
-Refs: "path/to/page.md" plus a vault argument, or "vault:path" (e.g. "tasks:work/report.md").
-Paths without .md, folder paths, and unique page names/slugs also resolve.
+Pages: "dir/index.md" is a folder-page, "x.md" a leaf. Refs: "vault:path" (e.g. "tasks:work/report"),
+or path + vault argument; .md optional; short ids and unique names resolve too.
 
 Conventions (follow them):
-- Link pages with [[wikilinks]]: [[path/to/page]], [[./sibling]], [[tasks:work/report]] across vaults,
-  [[page|alias]]. Never use markdown [text](url) for internal links.
-- Tags: frontmatter `tags: [a, b]` and inline #tag or #area/sub in the body.
-- Task metadata (optional on any page): state (todo|in-progress|blocked|waiting|done),
-  priority (high|medium|low), due (YYYY-MM-DD).
+- Cross-link both ways with [[wikilinks]]: a task description links notes ([[forest:projects/alpha]]),
+  notes link tasks ([[tasks:work/report]]). [[page|alias]], [[page#Heading]]. Never markdown links for internal refs.
+- Tags: frontmatter `tags: [a, b]` and inline #tag / #area/sub. Shared across vaults: tag a task #alpha
+  and it appears on any forest page with a ```tasks tag: alpha``` block.
+- Task fields (tasks vault only): state (todo|in-progress|blocked|waiting|done), priority
+  (high|medium|low), due (YYYY-MM-DD).
 - Search (search/grep/find) before creating, to avoid duplicates.
 - For additive notes use append; for surgical changes use edit (exact string replace);
   write replaces the whole file. Pass expected_sha (from read) to avoid clobbering concurrent edits.
@@ -292,9 +297,10 @@ def tags(tag: Optional[str] = None, vault: Optional[str] = None) -> str:
 def agenda(vault: Optional[str] = None, state: str = "undone", priority: Optional[str] = None,
            due_within: Optional[str] = None, overdue: bool = False, tag: Optional[str] = None,
            under: Optional[str] = None) -> str:
-    """Task view across vaults: pages with a state, sorted by due date then priority.
+    """Tasks (tasks vault), sorted by due date then priority.
     state: undone (default) | all | done | todo | in-progress | blocked | waiting.
-    due_within: '3d', '2w', '1m'. overdue: only past-due. under: path prefix inside the vault."""
+    due_within: '3d', '2w', '1m'. overdue: only past-due. tag: e.g. a project tag.
+    under: category (e.g. "work")."""
     return _j(store.agenda(_allowed_vaults(vault), state=state, priority=priority,
                            due_within=due_within, overdue=overdue, tag=tag, under=under))
 
@@ -305,10 +311,14 @@ def agenda(vault: Optional[str] = None, state: str = "undone", priority: Optiona
 def create(name: str, vault: Optional[str] = None, parent: Optional[str] = None, content: str = "",
            state: Optional[str] = None, priority: Optional[str] = None, due: Optional[str] = None,
            tags: Optional[List[str]] = None, as_folder: bool = False, template: Optional[str] = None) -> str:
-    """Create a page under parent (a page path; omitted = vault root). A leaf parent is promoted
-    to a folder automatically. as_folder=True makes the new page able to hold children.
-    template: e.g. "meeting", "project", "task" (see templates) - fills body and default metadata.
-    Search first to avoid duplicates."""
+    """Create a page. Tasks (anything with state/priority/due) go to the tasks vault - used
+    automatically when task fields are given without a vault - at the root or in a category
+    (parent = "category" or "category/index.md"; as_folder=True at the root creates a category).
+    Knowledge pages go to forest under any parent (a leaf parent becomes a folder-page).
+    template: e.g. "meeting", "project", "task" (see templates). Search first to avoid duplicates."""
+    if not vault and not (parent and ":" in parent) and (state or priority or due):
+        tv = [n for n, x in store.VAULTS.items() if x.is_tasks]
+        vault = tv[0] if tv else None
     v, par = _vault_for(parent, vault, write=True) if parent else (_check_vault(vault, True), None)
     page = v.create_page(par or None, name, content=content, state=state, priority=priority,
                          due=_date(due), tags=tags, as_folder=as_folder, template=template)
@@ -431,8 +441,8 @@ def append(ref: str, text: str, vault: Optional[str] = None, timestamp: bool = T
 def update(ref: str, vault: Optional[str] = None, name: Optional[str] = None, state: Optional[str] = None,
            priority: Optional[str] = None, due: Optional[str] = None, tags: Optional[List[str]] = None,
            content: Optional[str] = None, expected_sha: Optional[str] = None) -> str:
-    """Update page metadata/body. Only given fields change. Use "" to clear state/priority/due.
-    Marking state=done stamps 'completed'. content replaces the whole body."""
+    """Update page metadata/body. Only given fields change. state/priority/due exist on tasks only;
+    use "" to clear them. Marking state=done stamps 'completed'. content replaces the whole body."""
     v, p = _vault_for(ref, vault, write=True)
     fields: dict = {}
     if name is not None:
@@ -461,7 +471,8 @@ def move(ref: str, new_parent: Optional[str] = None, vault: Optional[str] = None
 
 @tool(RW, write=True)
 def promote(ref: str, vault: Optional[str] = None) -> str:
-    """Convert a leaf page into a folder-page so it can have children."""
+    """Convert a leaf page into a folder-page so it can have children (knowledge vaults only;
+    tasks are flat)."""
     v, p = _vault_for(ref, vault, write=True)
     return _j({"promoted": f"{v.name}:{v.promote_to_folder(p).path}"})
 

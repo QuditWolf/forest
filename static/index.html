@@ -416,6 +416,17 @@ body {
 #view-pane a.wikilink { color: var(--fg); border-bottom: 1px dotted var(--border); text-decoration: none; }
 #view-pane hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 #view-pane img { max-width: 100%; }
+#view-pane a.wikilink.broken { color: var(--dim); border-bottom-style: dashed; }
+#view-pane a.tasklink.done { text-decoration: line-through; opacity: .6; }
+#view-pane .task-due { font-size: .85em; color: var(--dim); }
+#view-pane .late { color: #c00 !important; }
+.task-block { border: 1px solid var(--border); margin: 8px 0; font-size: 13px; }
+.task-block-head { padding: 3px 6px; background: var(--hl); color: var(--dim); font-size: 12px; }
+.task-block .task-row { display: flex; gap: 10px; padding: 2px 6px; text-decoration: none; color: var(--fg); border-top: 1px solid var(--hl); }
+.task-block .task-row:hover { background: var(--hl); }
+.task-block .task-row.done { opacity: .5; text-decoration: line-through; }
+.task-block .tn { flex: 1; }
+.task-block .tm { color: var(--dim); font-size: 12px; min-width: 20px; }
 #view-pane input[type="checkbox"] { margin-right: 4px; }
 .mermaid-wrap { margin: 8px 0; overflow-x: auto; }
 .empty-hint { color: var(--dim); font-style: italic; }
@@ -875,7 +886,7 @@ body.mode-modern .toastui-editor-contents {
         <div class="fl">name</div>
         <input type="text" class="fi" id="np-name" placeholder="...">
       </div>
-      <div class="two-col">
+      <div class="two-col task-only">
         <div>
           <div class="fl">state</div>
           <select class="fs" id="np-state">
@@ -897,7 +908,7 @@ body.mode-modern .toastui-editor-contents {
           </select>
         </div>
       </div>
-      <div>
+      <div class="task-only">
         <div class="fl">due</div>
         <input type="date" class="fi" id="np-due">
       </div>
@@ -1183,6 +1194,7 @@ async function api(url, method='GET', body) {
 async function loadVaults() {
   const me = await api('/api/me');
   S.vaults = me.vaults;
+  S.taskVaults = me.task_vaults || [];
   if (!me.admin) document.getElementById('admin-link').style.display = 'none';
   if (!S.vaults.includes(S.vault)) S.vault = me.default_vault;
   const sel = document.getElementById('vault-sel');
@@ -1409,7 +1421,9 @@ function renderMeta(p) {
     patchMeta({ tags: tagInput.value.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean) }));
   const tagField = metaField('tags:', tagInput);
 
-  row.append(stateField, priField, dueField, tagField);
+  // task fields only exist in task vaults; knowledge pages just have tags
+  if (isTaskVault()) row.append(stateField, priField, dueField);
+  row.append(tagField);
   if (p.inline_tags?.length) {
     const it = document.createElement('span');
     it.className = 'meta-field';
@@ -1487,6 +1501,7 @@ function showEditMode() {
         <button class="ins-btn" onclick="insertMd('checkbox')" title="Checkbox task">[ ]</button>
         <button class="ins-btn" onclick="insertMd('quote')" title="Quote"><b>&gt;</b></button>
         <button class="ins-btn" onclick="insertMd('hr')" title="Horizontal line">---</button>
+        <button class="ins-btn" onclick="insertMd('tasks')" title="Live list of tasks with a tag">tasks</button>
         <button class="ins-btn" onclick="pickFile()" title="Attach file (or drag / paste into the text)">file</button>
       </div>
       <textarea id="edit-textarea" spellcheck="false" placeholder="write markdown here..."></textarea>
@@ -1517,7 +1532,9 @@ function toggleEdit() {
 
 function handleViewClick(e) {
   const wl = e.target.closest('a.wikilink');
+  if (wl && wl.dataset.taskUrl) { e.preventDefault(); location.href = wl.dataset.taskUrl; return; }
   if (wl) { e.preventDefault(); resolveWiki(wl.dataset.ref, wl.dataset.heading); return; }
+  if (e.target.closest('.task-block a')) return;
   const tg = e.target.closest('a.tag');
   if (tg) { e.preventDefault(); openTag(tg.dataset.tag); return; }
   if (e.target.closest('a,input,select,button,label,.mermaid-wrap')) return;
@@ -1551,6 +1568,9 @@ async function renderMarkdown(md) {
 
   // Render markdown, turn [[ref]] / [[vault:ref|alias]] into links, then sanitize
   let html = marked.parse(mdProcessed);
+  // keep [[...]] inside code spans/blocks literal
+  const _code = [];
+  html = html.replace(/<code[\s\S]*?<\/code>/g, m => { _code.push(m); return '\u0000C' + (_code.length - 1) + '\u0000'; });
   html = html.replace(/\[\[([^\]|#]+)(#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (_, ref, head, alias) => {
     ref = ref.trim();
     const m = ref.match(/^([a-z][a-z0-9_-]*):(.*)$/);
@@ -1559,9 +1579,12 @@ async function renderMarkdown(md) {
     const h = head ? head.slice(1) : '';
     return `<a class="wikilink${xv ? ' xvault' : ''}" data-vault="${esc(xv)}" data-ref="${esc(ref)}" data-heading="${esc(h)}" href="#">${esc(display)}${h ? ' &gt; ' + esc(h) : ''}</a>`;
   });
+  html = html.replace(/\u0000C(\d+)\u0000/g, (_, i) => _code[+i]);
   pane.innerHTML = DOMPurify.sanitize(html, { ADD_ATTR: ['data-ref', 'data-vault', 'data-heading'] });
   linkifyTags(pane);
   buildToc(pane);
+  renderTaskBlocks(pane);
+  decorateTaskLinks(pane);
 
   // Render mermaid blocks (lazy loaded only if needed)
   if (hasMermaid && mermaidBlocks.length) {
@@ -1749,6 +1772,10 @@ function insertMd(type) {
     case 'hr':
       insert = '\n---\n';
       cursorOffset = 5;
+      break;
+    case 'tasks':
+      insert = '```tasks\ntag: ' + (sel || 'project-tag') + '\n```';
+      cursorOffset = 14;
       break;
     case 'ascii':
       insert = '```\n' + (sel || '   ___\n  /   \\\n |     |\n  \\___/\n') + '\n```';
@@ -1965,6 +1992,7 @@ async function doPromote() {
 // ── New page modal ────────────────────────────────────────────────────────────
 function openNewPage(parent) {
   S.npParent = parent;
+  document.querySelectorAll('#np-overlay .task-only').forEach(el => el.style.display = isTaskVault() ? '' : 'none');
   const pn = parent ? (S.all.find(p => p.path === parent)?.name || parent) : null;
   const parentNode = parent ? S.all.find(p => p.path === parent) : null;
   const willPromote = parentNode && !parentNode.is_folder;
@@ -2009,9 +2037,11 @@ async function submitNewPage() {
     parent_path: parentPath,
     as_folder: document.getElementById('np-folder').checked,
     template: document.getElementById('np-tpl').value || null,
-    state:    document.getElementById('np-state').value || null,
-    priority: document.getElementById('np-pri').value   || null,
-    due:      document.getElementById('np-due').value   || null,
+    ...(isTaskVault() ? {
+      state:    document.getElementById('np-state').value || null,
+      priority: document.getElementById('np-pri').value   || null,
+      due:      document.getElementById('np-due').value   || null,
+    } : {}),
   });
   closeNewPage();
   // Expand the parent in tree (use promoted path if parent was promoted)
@@ -2161,6 +2191,62 @@ async function openTag(tag) {
   if (!pages.length) list.innerHTML = '<div style="color:var(--dim)">no pages</div>';
 }
 function closeTag() { document.getElementById('tag-overlay').classList.remove('open'); }
+
+// ── Tasks inside knowledge pages: live [[tasks:...]] links and ```tasks blocks ──
+function isTaskVault(v) { return (S.taskVaults || []).includes(v || S.vault); }
+function taskUrl(vault, path) { return '/tasks#' + vault + '/' + path; }
+
+async function decorateTaskLinks(pane) {
+  const links = [...pane.querySelectorAll('a.wikilink')];
+  if (!links.length || !(S.taskVaults || []).length) return;
+  const refs = [...new Set(links.map(a => a.dataset.ref))];
+  const q = new URLSearchParams(); refs.forEach(r => q.append('ref', r)); q.set('from_vault', S.vault);
+  let info;
+  try { info = await api('/api/summary?' + q); } catch (e) { return; }
+  const by = Object.fromEntries(info.map(i => [i.ref, i]));
+  for (const a of links) {
+    const t = by[a.dataset.ref];
+    if (!t) continue;
+    if (!t.exists) { a.classList.add('broken'); a.title = 'page not found - click to create'; continue; }
+    if (!t.is_task) continue;
+    a.classList.add('tasklink');
+    if (t.state === 'done') a.classList.add('done');
+    const icon = document.createElement('span'); icon.className = 'task-sym'; icon.textContent = (SYM[t.state] || '·') + ' ';
+    a.prepend(icon);
+    if (t.due) { const d = document.createElement('span'); d.className = 'task-due' + (t.due < new Date().toISOString().slice(0, 10) && t.state !== 'done' ? ' late' : ''); d.textContent = ' ' + t.due; a.append(d); }
+    a.title = `${t.vault}:${t.path} · ${t.state || ''} ${t.priority ? '· ' + t.priority : ''}`;
+    a.dataset.taskUrl = taskUrl(t.vault, t.path);
+  }
+}
+
+// ```tasks
+// tag: alpha          (also: state: all|done|todo|..., under: work, priority: high, due_within: 2w, overdue: true)
+// ```
+async function renderTaskBlocks(pane) {
+  for (const code of pane.querySelectorAll('pre > code.language-tasks')) {
+    const pre = code.parentElement;
+    const q = {};
+    code.textContent.split('\n').forEach(l => { const m = l.match(/^\s*(\w+)\s*:\s*(.+?)\s*$/); if (m) q[m[1].toLowerCase()] = m[2]; });
+    const params = new URLSearchParams({ state: q.state || 'undone' });
+    for (const k of ['tag', 'under', 'priority', 'due_within', 'overdue']) if (q[k]) params.set(k, q[k].replace(/^#/, ''));
+    if (q.category) params.set('under', q.category);
+    const box = document.createElement('div');
+    box.className = 'task-block';
+    const title = Object.entries(q).map(([k, v]) => k + ': ' + v).join(' · ') || 'all open tasks';
+    try {
+      const rows = await api('/api/agenda?' + params);
+      const today = new Date().toISOString().slice(0, 10);
+      box.innerHTML = `<div class="task-block-head">${esc(title)} <span>(${rows.length})</span></div>` + (rows.length ? rows.map(t =>
+        `<a class="task-row${t.state === 'done' ? ' done' : ''}" href="${esc(taskUrl(t.vault, t.path))}">` +
+        `<span class="task-sym">${esc(SYM[t.state] || '·')}</span> <span class="tn">${esc(t.name)}</span>` +
+        `<span class="tm">${esc(t.path.includes('/') ? t.path.split('/')[0] : '')}</span>` +
+        `<span class="tm">${esc(PSYM[t.priority] || '')}</span>` +
+        `<span class="tm${t.due && t.due < today && t.state !== 'done' ? ' late' : ''}">${esc(t.due || '')}</span></a>`).join('')
+        : '<div class="dim" style="padding:4px 6px">no matching tasks</div>');
+    } catch (e) { box.textContent = 'tasks block: ' + e.message; }
+    pre.replaceWith(box);
+  }
+}
 
 // ── Journal / daily notes ─────────────────────────────────────────────────────
 async function openToday(date) {

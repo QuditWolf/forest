@@ -91,20 +91,20 @@ class NewPageModal(ModalScreen[Optional[dict]]):
 
     def __init__(self, title: str, task_defaults: bool = False):
         super().__init__()
-        self.title_text, self.task_defaults = title, task_defaults
+        self.title_text, self.task_defaults = title, task_defaults   # task fields only in task vaults
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal"):
             yield Label(self.title_text)
             yield Input(placeholder="name", id="name")
-            with Horizontal(classes="row"):
-                yield Select([(s, s) for s in STATES], prompt="state", id="state",
-                             value="todo" if self.task_defaults else Select.BLANK)
-                yield Select([(p, p) for p in PRIORITIES], prompt="priority", id="priority",
-                             value="medium" if self.task_defaults else Select.BLANK)
-            yield Input(placeholder="due YYYY-MM-DD (optional)", id="due")
+            if self.task_defaults:
+                with Horizontal(classes="row"):
+                    yield Select([(s, s) for s in STATES], prompt="state", id="state", value="todo")
+                    yield Select([(p, p) for p in PRIORITIES], prompt="priority", id="priority", value="medium")
+                yield Input(placeholder="due YYYY-MM-DD (optional)", id="due")
             yield Input(placeholder="tags, comma separated (optional)", id="tags")
-            yield Checkbox("folder (can hold sub-pages)", id="folder")
+            if not self.task_defaults:
+                yield Checkbox("folder (can hold sub-pages)", id="folder")
             with Horizontal(classes="buttons"):
                 yield Button("create", id="create", variant="primary")
                 yield Button("cancel", id="cancel")
@@ -114,17 +114,16 @@ class NewPageModal(ModalScreen[Optional[dict]]):
         if not name:
             self.query_one("#name", Input).focus()
             return
-        st = self.query_one("#state", Select).value
-        pr = self.query_one("#priority", Select).value
         tags = [t.strip() for t in self.query_one("#tags", Input).value.split(",") if t.strip()]
-        self.dismiss({
-            "name": name,
-            "state": None if st == Select.BLANK else st,
-            "priority": None if pr == Select.BLANK else pr,
-            "due": self.query_one("#due", Input).value.strip() or None,
-            "tags": tags or None,
-            "as_folder": self.query_one("#folder", Checkbox).value,
-        })
+        data = {"name": name, "tags": tags or None}
+        if self.task_defaults:
+            st = self.query_one("#state", Select).value
+            pr = self.query_one("#priority", Select).value
+            data.update(state=None if st == Select.BLANK else st, priority=None if pr == Select.BLANK else pr,
+                        due=self.query_one("#due", Input).value.strip() or None)
+        else:
+            data["as_folder"] = self.query_one("#folder", Checkbox).value
+        self.dismiss(data)
 
     @on(Input.Submitted)
     def submitted(self):
@@ -242,6 +241,7 @@ class ForestTUI(App):
         self.vault = self.client.default_vault
         self.page: Optional[dict] = None
         self.agenda_rows: list = []
+        self.task_vaults: list = ["tasks"]
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -264,6 +264,7 @@ class ForestTUI(App):
             self.exit(message=f"forest: {e}\nConfigure with: forest login --url URL --token TOKEN")
             return
         self.vaults = me["vaults"]
+        self.task_vaults = me.get("task_vaults", ["tasks"])
         if self.vault not in self.vaults:
             self.vault = self.vaults[0]
         self.sub_title = f"{self.client.url} · {me['name']} ({me['scope']})"
@@ -472,7 +473,8 @@ class ForestTUI(App):
             except ClientError as e:
                 self._err(e)
         where = f"under {self.page['name']}" if parent and self.page else f"in {self.vault} root"
-        self.push_screen(NewPageModal(f"new page {where}", task_defaults=self.vault == "tasks"), done)
+        self.push_screen(NewPageModal(f"new {'task' if self.vault in self.task_vaults else 'page'} {where}",
+                                      task_defaults=self.vault in self.task_vaults), done)
 
     def action_new_child(self):
         self._new(self.page["path"] if self.page and self.page["vault"] == self.vault else None)

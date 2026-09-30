@@ -79,7 +79,9 @@ def test_xss_resistance(page, server, web):
 
 def test_forest_ui_features(page, server, web):
     web.post("/api/forest/pages", json={"name": "UI Hub", "content": "# One\n## Two\nlink [[tasks:ui-task|the task]] #uitag\n## Three\n"})
-    web.post("/api/tasks/pages", json={"name": "UI Task", "state": "todo"})
+    web.post("/api/tasks/pages", json={"name": "UI Task", "state": "in-progress", "due": "2026-12-24", "tags": ["uitag"]})
+    web.post("/api/tasks/pages", json={"name": "UI Other", "state": "todo", "tags": ["uitag"]})
+    web.post("/api/forest/pages", json={"name": "UI Organizer", "content": "## Plan\n- [[tasks:ui-task]]\n- [[tasks:gone-task]]\n- literal: `[[not-a-link]]`\n\n```tasks\ntag: uitag\n```\n"})
     page.goto(server.base + "/#forest/ui-hub.md")
     settle(page, 1500)
     # permalink copy
@@ -93,14 +95,20 @@ def test_forest_ui_features(page, server, web):
     page.click("#view-pane a.tag"); settle(page)
     assert "UI Hub" in page.inner_text("#tag-list")
     page.keyboard.press("Escape")
-    # cross-vault link switches vault, back button returns
-    page.click("#view-pane a.wikilink"); settle(page, 1000)
-    assert page.url.endswith("#tasks/ui-task.md") and page.input_value("#vault-sel") == "tasks"
-    assert "forest:ui-hub" in page.inner_text("#footer-bar")  # backlink across vaults
-    page.go_back(); settle(page, 1000)
-    assert page.url.endswith("#forest/ui-hub.md") and page.input_value("#vault-sel") == "forest"
-    # meta edit updates sha, then content save does not false-conflict
-    page.select_option("#meta-row select >> nth=0", "in-progress"); settle(page)
+    # knowledge pages have no task fields (just tags)
+    assert page.query_selector_all("#meta-row select") == [] and page.is_visible("#meta-row .meta-tags")
+    # organizer page: live task links + tasks block
+    page.goto(server.base + "/#forest/ui-organizer.md"); settle(page, 2000)
+    live = page.inner_text("#view-pane a.tasklink")
+    assert "◐" in live and "2026-12-24" in live
+    assert page.query_selector("#view-pane a.wikilink.broken") is not None       # [[tasks:gone-task]]
+    assert page.inner_text("#view-pane code") == "[[not-a-link]]"                # code stays literal
+    block = page.inner_text("#view-pane .task-block")
+    assert "tag: uitag" in block and "UI Task" in block and "UI Other" in block and "(2)" in block
+    page.click("#view-pane a.tasklink"); settle(page, 1500)                    # opens the tasks UI
+    assert page.url.endswith("/tasks#tasks/ui-task.md")
+    assert "forest:ui-organizer" in page.inner_text("#refs")                   # referenced in
+    page.goto(server.base + "/#forest/ui-hub.md"); settle(page, 1500)
     page.keyboard.press("e"); settle(page, 300)
     page.focus("#edit-textarea"); page.keyboard.press("Control+End")
     page.keyboard.type("\nsee [[ui ta"); settle(page, 800)
@@ -123,7 +131,6 @@ def test_forest_ui_features(page, server, web):
     assert "p.png" not in page.inner_text("#footer-bar")
     web.post("/api/forest/shadow/restore", json={"shadow_path": "_assets/ui-hub/p.png"})
     txt = web.get("/api/forest/page/ui-hub.md").json()
-    assert txt["state"] == "in-progress"
     assert "[[tasks:ui-task]]" in txt["content"] and "#uitag" in txt["content"] and "_assets/ui-hub/p.png" in txt["content"]
     page.keyboard.press("Escape"); settle(page)
     # conflict: agent edits while we're editing
@@ -170,7 +177,7 @@ def test_forest_ui_features(page, server, web):
     page.select_option("#np-tpl", "project")
     page.click("#np-overlay .modal-btn.primary"); settle(page, 1200)
     p = web.get("/api/forest/page/templated.md").json()
-    assert p["state"] == "todo" and "**Goal:**" in p["content"]
+    assert p["state"] is None and "**Goal:**" in p["content"] and "tag: templated" in p["content"]
     # search modal across vaults
     page.evaluate("document.activeElement.blur()")
     page.keyboard.press("/"); page.keyboard.type("UI Task"); settle(page, 900)

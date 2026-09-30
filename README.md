@@ -1,16 +1,31 @@
 # forest
 
 Personal knowledge base + task planner. Plain Markdown pages with YAML frontmatter in
-git-versioned **vaults** (`forest` for notes, `tasks` for the planner), served by one small
-server with:
+git-versioned **vaults**, served by one small server:
+
+- `forest` is **knowledge**: notes, projects, meetings, journal, inbox. Pages are never tasks.
+- `tasks` is the **task planner**: flat tasks (root or one category folder) with state,
+  priority, due date and tags.
+- They connect both ways: a task links notes with `[[forest:...]]`; a note links tasks with
+  `[[tasks:...]]` (shown with live status) or lists them live with a block:
+
+  ````markdown
+  ```tasks
+  tag: alpha-launch
+  ```
+  ````
+
+  A "project page" is just a forest page doing that (the `project` template sets it up).
+
+Interfaces:
 
 - **Web UI** (`/`) - tree, markdown + mermaid, `[[links]]` across vaults, tags, history,
   local graph, outline, journal, templates, attachments, autocomplete.
-- **Tasks UI** (`/tasks`) - categories, agenda across vaults, calendar with drag to
-  reschedule, notes, subtasks.
+- **Tasks UI** (`/tasks`) - categories, agenda, calendar with drag to reschedule, notes with
+  `[[` links, "referenced in" (which notes point at a task).
 - **Admin** (`/admin`) - read/write tokens, OAuth clients, audit log, backup/restore,
   clipper, reminders.
-- **MCP** (`/mcp`) - 34 tools for AI assistants and agents (Streamable HTTP).
+- **MCP** (`/mcp`) - 34 tools for AI assistants and agents (Streamable HTTP). Agent guide: `forest/skill/SKILL.md`.
 - **REST API** (`/api`, docs at `/api/docs`) and **git sync** (`/git/<vault>.git`).
 - **CLI + TUI** clients that talk to the server over HTTPS.
 

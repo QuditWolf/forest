@@ -58,11 +58,12 @@ def test_mcp_full_tool_surface(server, wtok, web):
         ("read", {"ref": "forest:agent-page"}),
         ("append", {"ref": "forest:agent-page", "text": "appended by agent"}),
         ("edit", {"ref": "forest:agent-page", "old": "first", "new": "FIRST"}),
-        ("update", {"ref": "forest:agent-page", "state": "todo", "due": "2026-12-01", "priority": "low"}),
-        ("update", {"ref": "forest:agent-page", "due": ""}),
+        ("create", {"name": "Agent Task", "state": "todo", "tags": ["agent"]}),   # no vault -> tasks
+        ("update", {"ref": "tasks:agent-task", "state": "in-progress", "due": "2026-12-01", "priority": "low"}),
+        ("update", {"ref": "tasks:agent-task", "due": ""}),
         ("read", {"ref": "forest:mcp-home#Part"}),
         ("search", {"query": "appended agent"}),
-        ("grep", {"pattern": "^state: todo", "context": 1}),
+        ("grep", {"pattern": "^state: in-progress", "context": 1}),
         ("find", {"glob": "*agent*"}),
         ("create", {"name": "Linked", "vault": "tasks", "content": "see [[forest:agent-page]]"}),
         ("links", {"ref": "forest:agent-page"}),
@@ -109,7 +110,8 @@ def test_mcp_full_tool_surface(server, wtok, web):
     assert "tasks:linked.md" in j(R["links"][0][1])["backlinks"]
     assert R["read_attachment"][0] == ("image", "image/png")
     assert R["write"][1][1].startswith("error:") and "changed" in R["write"][1][1]
-    assert "Sync meeting" in R["create"][2][1] or "sync-meeting" in R["create"][2][1]
+    assert "tasks:agent-task.md" in R["create"][1][1]
+    assert "sync-meeting" in R["create"][3][1]
     # every call audited, commits authored by the token
     evs = [e for e in audit(web, "mcp.call") if e["who"] == "token:e2e-write"]
     assert len(evs) >= len(calls)

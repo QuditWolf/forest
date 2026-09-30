@@ -19,7 +19,6 @@ body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 .bar-btn { background: none; border: none; color: var(--dim); padding: 4px 6px; cursor: pointer; text-decoration: none; font-size: 12px; }
 .bar-btn:hover { color: var(--fg); background: var(--hover-bg); }
 .kbd-hint { color: var(--dim); font-size: 11px; }
-#vault-sel { border: none; background: transparent; font-weight: bold; cursor: pointer; }
 
 .main { display: flex; flex: 1; overflow: hidden; }
 .panel { display: flex; flex-direction: column; border-right: 1px solid var(--border); overflow: hidden; }
@@ -103,6 +102,9 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
 .cal-task.done { opacity: .45; text-decoration: line-through; }
 .cal-task.overdue { color: var(--bad); }
 .cal-task.s-in-progress { font-weight: bold; }
+.ac-box { position: absolute; left: 0; right: 0; top: 100%; background: var(--bg); border: 1px solid var(--fg); z-index: 20; font-size: 12px; }
+.ac-item { padding: 2px 6px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ac-item.sel, .ac-item:hover { background: var(--hl); }
 #toast { position: fixed; bottom: 12px; right: 12px; background: var(--fg); color: var(--bg); padding: 4px 10px; font-size: 12px; display: none; }
 @media (max-width: 900px) { .categories { width: 130px; } .detail-panel { width: 290px; } .kbd-hint { display: none; } }
 </style>
@@ -110,7 +112,6 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
 <body>
 <div id="topbar">
   <span class="brand">tasks</span>
-  <select id="vault-sel" title="Vault"></select>
   <span class="crumb" id="cat-title"></span>
   <span class="sp"></span>
   <span class="kbd-hint">j/k move · x done · a add · n note · e edit · / filter · c calendar</span>
@@ -175,7 +176,6 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
     <div class="toolbar" id="detail-tools" style="display:none">
       <button onclick="toggleNote()">+ note</button>
       <button onclick="toggleEditNotes()" id="edit-notes-btn">edit notes</button>
-      <button onclick="addSubtask()">+ subtask</button>
       <button class="danger" onclick="deleteTask()">delete</button>
     </div>
   </div>
@@ -195,7 +195,7 @@ const ICON = { todo: '○', 'in-progress': '◐', blocked: '✗', waiting: '⏸'
 const DOT = { high: '●', medium: '◉', low: '○' };
 
 const S = {
-  vault: localStorage.getItem('t-vault') || 'tasks', vaults: [],
+  vault: 'tasks', vaults: [],
   pages: [], cat: localStorage.getItem('t-cat') || '*agenda:today',
   list: [], sel: null, page: null,
   filter: localStorage.getItem('t-filter') || 'undone',
@@ -250,13 +250,13 @@ async function renderCats() {
   const item = (key, label, count, warn) =>
     `<div class="cat-item ${S.cat === key ? 'active' : ''}" data-cat="${esc(key)}"><span>${esc(label)}</span>` +
     `<span class="cat-count ${warn ? 'warn' : ''}">${count ?? ''}</span></div>`;
-  let html = '<div class="cat-sep">agenda (all vaults)</div>';
+  let html = '<div class="cat-sep">agenda</div>';
   html += item('*agenda:overdue', 'overdue', over.length || '', over.length > 0);
   html += item('*agenda:today', 'today', soon.length || '');
   html += item('*agenda:week', 'next 7 days', '');
   html += item('*agenda:doing', 'in progress', '');
   html += item('*calendar', 'calendar', '');
-  html += `<div class="cat-sep">${esc(S.vault)}</div>`;
+  html += '<div class="cat-sep">categories</div>';
   html += item('*all', 'all', S.pages.filter(p => !isCategoryIndex(p) && p.state && p.state !== 'done').length);
   for (const [k, c] of Object.entries(cats).sort((a, b) => (a[0] === '') - (b[0] === '') || a[0].localeCompare(b[0])))
     html += item(k, k === '' ? 'unsorted' : c.name, c.n || '', c.over > 0);
@@ -292,7 +292,7 @@ async function loadList() {
     const q = { overdue: 'overdue=true', today: 'due_within=0d', week: 'due_within=7d', doing: 'state=in-progress' }[kind];
     list = await api('/api/agenda?' + q);
     $('tasks-title').textContent = { overdue: 'overdue', today: 'due today (and overdue)', week: 'next 7 days', doing: 'in progress' }[kind];
-    $('cat-title').textContent = 'all vaults';
+    $('cat-title').textContent = 'agenda';
   } else {
     list = S.pages.filter(p => !isCategoryIndex(p) && !p.path.startsWith('_') && !p.path.startsWith('journal/')
                                 && (c === '*all' || catOf(p) === c));
@@ -301,7 +301,7 @@ async function loadList() {
     if (S.filter === 'done') list = list.filter(p => p.state === 'done');
     const label = c === '*all' ? 'all' : c === '' ? 'unsorted' : c;
     $('tasks-title').textContent = label;
-    $('cat-title').textContent = S.vault + ' / ' + label;
+    $('cat-title').textContent = label;
   }
   const q = $('filter').value.trim().toLowerCase();
   if (q) list = list.filter(p => (p.name + ' ' + p.path + ' ' + (p.tags || []).join(' ')).toLowerCase().includes(q));
@@ -331,7 +331,7 @@ function renderList() {
   const inCat = !S.cat.startsWith('*');
   el.innerHTML = S.list.map((t, i) => {
     const depth = inCat ? Math.max(0, t.path.split('/').length - (t.is_folder ? 2 : 1) - (S.cat === '' ? 0 : 1)) : 0;
-    const where = inCat ? '' : `<span class="task-where">${esc(S.cat.startsWith('*agenda') ? t.vault + ':' : '')}${esc(t.path.replace(/(\/index)?\.md$/, ''))}</span>`;
+    const where = inCat ? '' : `<span class="task-where">${esc(t.path.includes('/') ? t.path.split('/')[0] : '')}</span>`;
     return `<div class="task-item ${isSel(t) ? 'active' : ''} ${dueClass(t)}" data-i="${i}" style="padding-left:${8 + depth * 14}px">
       <span class="task-icon" data-toggle="${i}" title="toggle done [x]">${ICON[t.state] || '·'}</span>
       <span class="task-name">${esc(t.name)}${t.is_folder ? ' <span class="task-where">+</span>' : ''}${where}</span>
@@ -355,7 +355,7 @@ async function renderCalendar() {
   S.calMonth = new Date(base.getFullYear(), base.getMonth(), 1, 12);
   const y = S.calMonth.getFullYear(), m = S.calMonth.getMonth();
   $('cal-title').textContent = S.calMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' });
-  $('cat-title').textContent = 'calendar (all vaults)';
+  $('cat-title').textContent = 'calendar';
   const [tasks, days] = await Promise.all([api('/api/agenda?state=all'), api('/api/daily/days').catch(() => ({ days: [] }))]);
   const journal = new Set(days.days);
   const byDay = {};
@@ -439,9 +439,7 @@ function renderDetail() {
       <button id="d-move-btn">move</button></div>` : ''}
     <div id="note-input" style="display:none;margin-top:8px"><div class="row">
       <input type="text" id="d-note" placeholder="note text..."><button class="primary" id="d-note-btn">add</button></div></div>
-    ${p.children?.length ? `<div class="fl">subtasks</div>${p.children.map(c => {
-        const sp = S.pages.find(x => x.path === c);
-        return `<div class="sub-row" data-path="${esc(c)}">${sp ? (ICON[sp.state] || '·') : '·'} ${esc(sp ? sp.name : c)}</div>`; }).join('')}` : ''}
+    <div class="fl">referenced in</div><div id="refs" class="dim">...</div>
     <div id="notes"></div>
     <div class="footer-ref">${esc(p.vault)}:${esc(p.path)} · ${esc(p.short_id)}</div>
   </div>`;
@@ -458,25 +456,41 @@ function renderDetail() {
   $('d-move-btn')?.addEventListener('click', () => moveTask($('d-move').value));
   $('d-note').addEventListener('keydown', e => e.key === 'Enter' && addNote());
   $('d-note-btn').addEventListener('click', addNote);
-  el.querySelectorAll('.sub-row').forEach(r => r.addEventListener('click', () => selectTask({ vault: p.vault, path: r.dataset.path })));
   renderNotes();
+  renderRefs(p);
+}
+
+async function renderRefs(p) {
+  const box = $('refs');
+  let refs = [];
+  try { refs = await api(vp('backlinks/' + enc(p.path), p.vault)); } catch (e) {}
+  if (S.page !== p) return;
+  box.innerHTML = refs.length ? refs.map(r => {
+    const i = r.indexOf(':'), v = r.slice(0, i), path = r.slice(i + 1);
+    const href = me_taskVaults.includes(v) ? '/tasks#' + v + '/' + path : '/#' + v + '/' + path;
+    return `<div><a class="sub-row" href="${esc(href)}">${esc(me_taskVaults.includes(v) ? '' : v + ':')}${esc(path.replace(/(\/index)?\.md$/, ''))}</a></div>`;
+  }).join('') : 'no pages link here yet';
 }
 
 function renderNotes() {
   const p = S.page, box = $('notes');
   $('edit-notes-btn').textContent = S.editingNotes ? 'save notes' : 'edit notes';
   if (S.editingNotes) {
-    box.innerHTML = '<div class="fl">notes (markdown)</div><textarea id="d-notes"></textarea>';
+    box.innerHTML = '<div class="fl">notes (markdown, [[ to link a page)</div><div style="position:relative"><textarea id="d-notes"></textarea></div>';
     $('d-notes').value = p.content || '';
     $('d-notes').focus();
+    setupLinkAC($('d-notes'));
     $('d-notes').addEventListener('keydown', e => {
       if (e.key === 'Escape' || (e.key === 's' && e.ctrlKey)) { e.preventDefault(); toggleEditNotes(); }
     });
     return;
   }
   let html = p.content?.trim() ? marked.parse(p.content) : '<span class="empty-note">no notes, click to write</span>';
+  const _code = [];
+  html = html.replace(/<code[\s\S]*?<\/code>/g, m => { _code.push(m); return '\u0000C' + (_code.length - 1) + '\u0000'; });
   html = html.replace(/\[\[([^\]|#]+)(#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (_, ref, _h, alias) =>
     `<a class="wikilink" data-ref="${esc(ref.trim())}" href="#">${esc(alias || ref.split(':').pop().split('/').pop().replace(/-/g, ' '))}</a>`);
+  html = html.replace(/\u0000C(\d+)\u0000/g, (_, i) => _code[+i]);
   box.innerHTML = `<div class="notes-area">${DOMPurify.sanitize(html, { ADD_ATTR: ['data-ref'] })}</div>`;
   box.firstElementChild.addEventListener('click', async e => {
     const a = e.target.closest('a.wikilink');
@@ -545,15 +559,42 @@ async function deleteTask() {
   await refresh(true);
 }
 
-async function addSubtask() {
-  if (!S.page) return;
-  const name = prompt('subtask name');
-  if (!name) return;
-  const v = S.page.vault, parent = S.page.path;
-  await api(vp('pages', v), 'POST', { name, parent_path: parent, state: 'todo' });
-  await refresh(true);
-  const np = S.pages.find(p => p.path === parent || p.path === parent.replace(/\.md$/, '/index.md'));
-  if (np) selectTask({ vault: v, path: np.path });
+// [[ autocomplete in task notes (links to forest pages or other tasks)
+let me_taskVaults = [];
+let _idx = null;
+function setupLinkAC(ta) {
+  let box = null, items = [], sel = 0, start = 0;
+  const close = () => { box?.remove(); box = null; };
+  const pick = i => {
+    const it = items[i]; if (!it) return;
+    const after = ta.value.slice(ta.selectionStart).replace(/^[^\]\n]*\]\]/, '');
+    const ins = '[[' + it.vault + ':' + it.path.replace(/\.md$/, '').replace(/\/index$/, '') + ']]';
+    ta.value = ta.value.slice(0, start) + ins + after;
+    ta.selectionStart = ta.selectionEnd = start + ins.length;
+    close();
+  };
+  ta.addEventListener('input', async () => {
+    const m = ta.value.slice(0, ta.selectionStart).match(/\[\[([^\]\n|#]*)$/);
+    if (!m) return close();
+    if (!_idx) _idx = await api('/api/index');
+    start = ta.selectionStart - m[1].length - 2;
+    const q = m[1].toLowerCase();
+    items = _idx.pages.filter(p => (p.name + ' ' + p.path).toLowerCase().includes(q)).slice(0, 8);
+    if (!items.length) return close();
+    sel = 0;
+    if (!box) { box = document.createElement('div'); box.className = 'ac-box'; ta.parentElement.appendChild(box); }
+    box.innerHTML = items.map((p, i) => `<div class="ac-item${i === sel ? ' sel' : ''}" data-i="${i}">${esc(p.name)} <span class="dim">${esc(p.vault + ':' + p.path)}</span></div>`).join('');
+    box.querySelectorAll('.ac-item').forEach(d => d.addEventListener('mousedown', ev => { ev.preventDefault(); pick(+d.dataset.i); }));
+  });
+  ta.addEventListener('keydown', e => {
+    if (!box) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); sel = (sel + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+      box.querySelectorAll('.ac-item').forEach((d, i) => d.classList.toggle('sel', i === sel));
+    } else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pick(sel); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+  }, true);
+  ta.addEventListener('blur', () => setTimeout(close, 150));
 }
 
 async function copyLink(e) {
@@ -604,11 +645,6 @@ document.querySelectorAll('button.chip').forEach(b => b.addEventListener('click'
 $('sort').addEventListener('change', e => { S.sort = e.target.value; localStorage.setItem('t-sort', S.sort); loadList(); });
 $('filter').addEventListener('input', () => loadList());
 $('new-name').addEventListener('keydown', e => { if (e.key === 'Enter') addTask(); if (e.key === 'Escape') toggleAdd(false); });
-$('vault-sel').addEventListener('change', async e => {
-  S.vault = e.target.value; localStorage.setItem('t-vault', S.vault);
-  if (!S.cat.startsWith('*')) S.cat = '*all';
-  await refresh();
-});
 
 document.addEventListener('keydown', e => {
   const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
@@ -635,10 +671,9 @@ window.addEventListener('focus', () => { if (!S.editingNotes) refresh(true).catc
 (async () => {
   const me = await api('/api/me');
   S.vaults = me.vaults;
+  me_taskVaults = me.task_vaults || [];
   if (!me.admin) $('admin-link').style.display = 'none';
-  if (!S.vaults.includes(S.vault)) S.vault = S.vaults.includes('tasks') ? 'tasks' : S.vaults[0];
-  $('vault-sel').innerHTML = S.vaults.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
-  $('vault-sel').value = S.vault;
+  S.vault = me_taskVaults[0] || 'tasks';
   $('sort').value = S.sort;
   document.querySelectorAll('button.chip').forEach(b => b.classList.toggle('on', b.dataset.f === S.filter));
   await loadPages();

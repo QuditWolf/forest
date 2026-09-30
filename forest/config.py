@@ -93,6 +93,9 @@ if TIMEZONE and os.environ.get("TZ") != TIMEZONE and hasattr(__import__("time"),
 JOURNAL = str(_get("forest", "journal", "FOREST_JOURNAL", "forest:journal"))       # daily notes
 TEMPLATES = str(_get("forest", "templates", "FOREST_TEMPLATES", "forest:_templates"))
 INBOX = str(_get("forest", "inbox", "FOREST_INBOX", "forest:inbox"))               # captures / web clips
+# Vaults that hold tasks (state/priority/due, flat categories). All others are knowledge vaults.
+_tv = _get("forest", "task_vaults", "FOREST_TASK_VAULTS", "tasks")
+TASK_VAULTS = _tv if isinstance(_tv, list) else [v.strip() for v in str(_tv).split(",") if v.strip()]
 
 MAX_UPLOAD_MB = int(_get("forest", "max_upload_mb", "FOREST_MAX_UPLOAD_MB", 25))
 

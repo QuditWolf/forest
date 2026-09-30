@@ -39,11 +39,42 @@ def test_templates(agent, web):
     assert "# Standup" in p["content"] and date.today().isoformat() in p["content"] and "meeting" in p["tags"]
     t = agent.post("/api/tasks/pages", json={"name": "Tpl task", "template": "task"}).json()
     assert t["state"] == "todo" and t["priority"] == "medium" and "## Done when" in t["content"]
+    assert agent.post("/api/forest/pages", json={"name": "Wrong vault", "template": "task"}).status_code == 400
     # user-edited template is used
     web.put("/api/forest/raw/_templates/meeting.md", json={"text": "---\nname: Meeting\n---\nCUSTOM {{title}} {{weekday}}\n"})
     p2 = agent.post("/api/forest/pages", json={"name": "Retro", "template": "meeting"}).json()
     assert p2["content"].startswith("CUSTOM Retro " + datetime.now(timezone.utc).strftime("%A"))
     assert agent.post("/api/forest/pages", json={"name": "x", "template": "nope"}).status_code == 404
+
+
+def test_template_upgrade_keeps_user_edits(server, web):
+    """Old default templates are upgraded on startup; edited ones are left alone."""
+    import os, subprocess, sys, time
+    from forest.features import OLD_BUILTINS
+    from conftest import ROOT, free_port
+    tdir = server.data / "vaults" / "forest" / "_templates"
+    (tdir / "project.md").write_text(OLD_BUILTINS["project"][0])
+    (tdir / "task.md").write_text("---\nname: Task\nstate: todo\n---\nMY OWN TASK TEMPLATE\n")
+    port = free_port()
+    p = subprocess.Popen([sys.executable, "-m", "uvicorn", "forest.api:app", "--port", str(port)],
+                         env={**server.env}, cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(100):
+            try:
+                if httpx.get(f"http://127.0.0.1:{port}/healthz").status_code == 200:
+                    break
+            except httpx.HTTPError:
+                time.sleep(0.1)
+        proj = (tdir / "project.md").read_text()
+        assert "state:" not in proj and "```tasks" in proj and "{{slug}}" in proj
+        assert "MY OWN TASK TEMPLATE" in (tdir / "task.md").read_text()
+    finally:
+        p.terminate(); p.wait(10)
+
+
+def test_project_template_organizer(agent):
+    p = agent.post("/api/forest/pages", json={"name": "Alpha Launch", "template": "project"}).json()
+    assert p["state"] is None and "tag: alpha-launch" in p["content"] and "#alpha-launch" in p["content"]
 
 
 def test_daily_notes(agent):
@@ -63,7 +94,7 @@ def test_capture_and_ssrf(agent, reader):
                                         "tags": ["web"]}).json()
     assert p["path"].startswith("inbox/") and p["extra"]["source"] == "https://example.com/a"
     assert "> line1\n> line2" in p["content"]
-    t = agent.post("/api/capture", json={"text": "buy stamps", "where": "tasks:", "as_task": True}).json()
+    t = agent.post("/api/capture", json={"text": "buy stamps", "as_task": True}).json()
     assert t["vault"] == "tasks" and t["state"] == "todo" and t["path"] == "buy-stamps.md"
     for url in ["http://127.0.0.1:1/x", "http://localhost/x", "http://169.254.169.254/latest", "file:///etc/passwd",
                 "http://10.0.0.1/", "ftp://example.com"]:
@@ -133,7 +164,7 @@ def test_ai_readonly(agent, web):
     web.patch("/api/forest/page/vault-rules/index.md", json={"extra": {"ai": "readonly"}})
     web.post("/api/forest/pages", json={"name": "Rule One", "parent_path": "vault-rules/index.md"})
     for r in [agent.post("/api/forest/page/vault-rules/rule-one.md/append", json={"text": "x"}),
-              agent.patch("/api/forest/page/vault-rules/rule-one.md", json={"state": "done"}),
+              agent.patch("/api/forest/page/vault-rules/rule-one.md", json={"name": "renamed"}),
               agent.put("/api/forest/raw/vault-rules/rule-two.md", json={"text": "x"}),
               agent.post("/api/forest/pages", json={"name": "sneaky", "parent_path": "vault-rules/index.md"}),
               agent.delete("/api/forest/page/vault-rules/rule-one.md"),

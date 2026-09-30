@@ -7,7 +7,14 @@
 # Data (VAULTS_DIR, STATE_DIR) lives on the host and is never modified by this script;
 # it is only copied into a snapshot first. The previous image is kept as forest:previous.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+# Run from a temp copy: `git pull` below may replace this very file while bash is reading it.
+if [ -z "${FOREST_UPDATE_REPO:-}" ]; then
+  export FOREST_UPDATE_REPO="$(cd "$(dirname "$0")/.." && pwd)"
+  tmp=$(mktemp /tmp/forest-update.XXXXXX.sh); cp "$0" "$tmp"
+  exec bash "$tmp" "$@"
+fi
+trap 'rm -f "$0"' EXIT
+cd "$FOREST_UPDATE_REPO"
 
 envval() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/^"//; s/"$//'; }
 VAULTS_DIR=$(envval VAULTS_DIR); STATE_DIR=$(envval STATE_DIR)
@@ -50,6 +57,12 @@ docker compose up -d
 echo "== 5/5 health check ($HEALTH)"
 if healthy; then
   echo "updated, healthy ($(git log -1 --format='%h %s'))"
+  echo "== cleanup: old images and build cache (keeps forest:latest and forest:previous)"
+  docker compose up -d --remove-orphans >/dev/null
+  docker image prune -f >/dev/null                          # dangling layers from rebuilds
+  docker builder prune -f --filter until=168h >/dev/null    # build cache older than a week
+  docker system df | sed -n '1,4p'
+  ls -1t "$BACKUP_DIR"/forest-*.tar.gz | head -3
 else
   echo "NOT healthy - rolling back to previous image"
   docker compose logs --tail 50 forest || true

@@ -17,7 +17,7 @@ def test_page_lifecycle(agent, server):
     r = agent.post("/api/forest/pages", json={"name": "Proj A", "as_folder": True})
     assert r.status_code == 201 and r.json()["path"] == "proj-a/index.md"
     p = agent.post("/api/forest/pages", json={"name": "Design Doc", "parent_path": "proj-a", "content": "hello",
-                                             "state": "todo", "priority": "high", "tags": ["x", "#y"]}).json()
+                                             "tags": ["x", "#y"]}).json()
     assert p["path"] == "proj-a/design-doc.md" and p["tags"] == ["x", "y"]
     # leaf as parent auto-promotes
     c = agent.post("/api/forest/pages", json={"name": "Child", "parent_path": p["path"]}).json()
@@ -28,13 +28,10 @@ def test_page_lifecycle(agent, server):
     sid = parent["short_id"]
     assert agent.get(f"/api/forest/page/{sid}").json()["path"] == parent["path"]
     assert agent.get("/api/forest/page/Child").json()["path"] == c["path"]
-    # update + done stamps completed; unknown frontmatter kept
-    u = agent.patch(f"/api/forest/page/{c['path']}", json={"state": "done", "extra": {"custom": 7}}).json()
-    assert u["completed"] == date.today().isoformat() and u["extra"]["custom"] == 7
+    # unknown frontmatter kept across updates
+    u = agent.patch(f"/api/forest/page/{c['path']}", json={"extra": {"custom": 7}}).json()
     u = agent.patch(f"/api/forest/page/{c['path']}", json={"name": "Child renamed"}).json()
-    assert u["extra"]["custom"] == 7 and u["completed"]
-    # invalid values
-    assert agent.patch(f"/api/forest/page/{c['path']}", json={"state": "bogus"}).status_code in (400, 422)
+    assert u["extra"]["custom"] == 7
     # append, raw, edit
     agent.post(f"/api/forest/page/{c['path']}/append", json={"text": "note one"})
     raw = agent.get(f"/api/forest/page/{c['path']}", params={"raw": True}).json()
@@ -123,3 +120,45 @@ def test_concurrent_writes_lose_nothing(agent, server):
 def test_writes_are_audited(web, agent):
     agent.post("/api/forest/pages", json={"name": "audited"})
     assert any(e["event"] == "http" and e["method"] == "POST" and e["who"] == "token:e2e-write" for e in audit(web))
+
+
+
+def test_knowledge_vs_task_vault_rules(agent):
+    # knowledge vault refuses task fields everywhere
+    for r in [agent.post("/api/forest/pages", json={"name": "k1", "state": "todo"}),
+              agent.post("/api/forest/pages", json={"name": "k2", "due": "2026-12-01"}),
+              agent.put("/api/forest/raw/k3.md", json={"text": "---\nname: k3\npriority: high\n---\n"})]:
+        assert r.status_code == 400 and "knowledge vault" in r.text
+    k = agent.post("/api/forest/pages", json={"name": "Plain note"}).json()
+    r = agent.patch(f"/api/forest/page/{k['path']}", json={"state": "done"})
+    assert r.status_code == 400 and "[[tasks:" in r.text
+    # tasks: done stamps completed; invalid state rejected
+    t = agent.post("/api/tasks/pages", json={"name": "Stamp me", "state": "todo"}).json()
+    u = agent.patch(f"/api/tasks/page/{t['path']}", json={"state": "done"}).json()
+    assert u["completed"] == date.today().isoformat()
+    assert agent.patch(f"/api/tasks/page/{t['path']}", json={"state": "bogus"}).status_code in (400, 422)
+    # tasks are flat: categories only at the root, tasks at root or one level down
+    cat = agent.post("/api/tasks/pages", json={"name": "Flat Cat", "as_folder": True}).json()
+    assert cat["path"] == "flat-cat/index.md"
+    ok = agent.post("/api/tasks/pages", json={"name": "In cat", "parent_path": "flat-cat", "state": "todo"})
+    assert ok.status_code == 201 and ok.json()["path"] == "flat-cat/in-cat.md"
+    for r in [agent.post("/api/tasks/pages", json={"name": "Sub", "parent_path": "flat-cat/in-cat.md"}),
+              agent.post("/api/tasks/pages", json={"name": "Nested cat", "parent_path": "flat-cat", "as_folder": True}),
+              agent.post("/api/tasks/page/flat-cat/in-cat.md/promote"),
+              agent.put("/api/tasks/raw/flat-cat/deep/x.md", json={"text": "---\nname: x\n---\n"}),
+              agent.post("/api/tasks/page/stamp-me.md/move", json={"new_parent_path": "flat-cat/in-cat.md"})]:
+        assert r.status_code == 400 and "flat" in r.text, r.text
+    mv = agent.post("/api/tasks/page/stamp-me.md/move", json={"new_parent_path": "flat-cat"})
+    assert mv.status_code == 200 and mv.json()["path"] == "flat-cat/stamp-me.md"
+    # agenda only looks at the tasks vault
+    assert all(p["vault"] == "tasks" for p in agent.get("/api/agenda", params={"state": "all"}).json())
+
+
+def test_live_task_summaries(agent):
+    agent.post("/api/tasks/pages", json={"name": "Summ task", "state": "in-progress", "due": "2026-11-11"})
+    r = agent.get("/api/summary", params=[("ref", "tasks:summ-task"), ("ref", "tasks:nope"), ("ref", "forest:plain-note"),
+                                           ("from_vault", "forest")]).json()
+    assert r[0]["exists"] and r[0]["is_task"] and r[0]["state"] == "in-progress" and r[0]["due"] == "2026-11-11"
+    assert r[1] == {"ref": "tasks:nope", "exists": False}
+    assert r[2]["exists"] and r[2]["is_task"] is False
+    assert agent.get("/api/me").json()["task_vaults"] == ["tasks"]

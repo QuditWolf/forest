@@ -112,8 +112,6 @@ tags: [meeting]
 """,
     "project": """---
 name: Project
-state: todo
-priority: medium
 tags: [project]
 ---
 # {{title}}
@@ -123,7 +121,11 @@ tags: [project]
 **Done when:**
 
 ## Tasks
-- [ ]
+Tag tasks with #{{slug}} and they show up here live (you can also link single tasks with `[[tasks:category/task]]`):
+
+```tasks
+tag: {{slug}}
+```
 
 ## Links
 
@@ -144,8 +146,14 @@ priority: medium
 }
 
 
+# Earlier built-in versions: replaced on startup ONLY if the file is still exactly the old default.
+OLD_BUILTINS = {
+    "project": ['---\nname: Project\nstate: todo\npriority: medium\ntags: [project]\n---\n# {{title}}\n\n**Goal:**\n\n**Done when:**\n\n## Tasks\n- [ ]\n\n## Links\n\n## Log\n'],
+}
+
+
 def ensure_templates() -> None:
-    """Seed built-in templates (never overwrites your edits)."""
+    """Seed built-in templates (never overwrites your edits; upgrades untouched old defaults)."""
     try:
         v, folder = _loc(TEMPLATES)
     except KeyError:
@@ -155,11 +163,11 @@ def ensure_templates() -> None:
     created = False
     for name, text in BUILTIN_TEMPLATES.items():
         f = v.root / folder / f"{name}.md"
-        if not f.exists():
-            f.write_text(text.replace("created:", "created:"), encoding="utf-8")
+        if not f.exists() or f.read_text(encoding="utf-8") in OLD_BUILTINS.get(name, []):
+            f.write_text(text, encoding="utf-8")
             created = True
     if created:
-        gitrepo.commit(v.root, "seed templates", author="forest") if (v.root / ".git").exists() else None
+        gitrepo.commit(v.root, "seed/upgrade templates", author="forest") if (v.root / ".git").exists() else None
 
 
 def list_templates() -> List[dict]:
@@ -184,8 +192,8 @@ def list_templates() -> List[dict]:
 def render(text: str, title: str, d: Optional[datetime] = None) -> str:
     d = d or now()
     vals = {"title": title, "date": d.date().isoformat(), "time": d.strftime("%H:%M"),
-            "weekday": d.strftime("%A")}
-    return re.sub(r"\{\{\s*(title|date|time|weekday)\s*\}\}", lambda m: vals[m.group(1)], text)
+            "weekday": d.strftime("%A"), "slug": slugify(title)}
+    return re.sub(r"\{\{\s*(title|date|time|weekday|slug)\s*\}\}", lambda m: vals[m.group(1)], text)
 
 
 def apply_template(template: str, title: str, d: Optional[datetime] = None) -> Tuple[dict, str]:
@@ -222,6 +230,23 @@ def journal_days() -> List[str]:
     v, folder = _loc(JOURNAL)
     d = v.root / folder
     return sorted(f.stem for f in d.glob("????-??-??.md")) if d.is_dir() else []
+
+
+# ── Live task references (for [[tasks:...]] links in knowledge pages) ─────────
+
+def summaries(refs: List[str], from_vault: str = "forest", allowed=None) -> List[dict]:
+    """Resolve many [[refs]] at once → current name/state/priority/due (or exists: false)."""
+    out = []
+    for ref in refs[:200]:
+        try:
+            v, p = store.resolve_link(ref, from_vault)
+            if allowed and not allowed(v):
+                raise KeyError(v)
+            page = store.vault(v).get_page(p)
+            out.append({"ref": ref, "exists": True, **store._summary(page), "is_task": store.vault(v).is_tasks})
+        except Exception:
+            out.append({"ref": ref, "exists": False})
+    return out
 
 
 # ── Outline / sections ────────────────────────────────────────────────────────
@@ -666,7 +691,11 @@ def fetch_article(url: str) -> Tuple[str, str]:
 def capture(title: Optional[str] = None, text: str = "", url: Optional[str] = None,
             where: Optional[str] = None, fetch: bool = False, tags: Optional[List[str]] = None,
             as_task: bool = False) -> Page:
-    """Save a note / web clip into the inbox (or `where` = 'vault:folder')."""
+    """Save a note / web clip into the inbox (or `where` = 'vault:folder').
+    as_task: goes to the tasks vault (root = unsorted) with state todo, unless `where` says otherwise."""
+    if as_task and not where:
+        tv = [n for n, x in store.VAULTS.items() if x.is_tasks]
+        where = f"{tv[0]}:" if tv else None
     v, folder = _loc(where or INBOX)
     parent = _ensure_folder(v, folder, folder.rsplit("/", 1)[-1].replace("-", " ").title() or "Inbox") \
         if folder else None
