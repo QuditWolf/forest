@@ -133,6 +133,16 @@ def _validate_meta(state: Optional[str], priority: Optional[str]) -> None:
 
 
 _TASK_FIELDS = ("state", "priority", "due", "completed")
+
+# Attachments: binary documents get a cached "<file>.txt" sidecar with extracted text (searchable);
+# text-like files are searched directly.
+SIDECAR_EXTS = {".pdf", ".docx", ".html", ".htm"}
+TEXT_EXTS = {".txt", ".md", ".csv", ".tsv", ".json", ".yaml", ".yml", ".log", ".xml", ".toml", ".ini",
+             ".py", ".js", ".ts", ".sh", ".sql", ".rst"}
+
+
+def is_sidecar(p: Path) -> bool:
+    return p.suffix == ".txt" and Path(p.stem).suffix.lower() in SIDECAR_EXTS
 FLAT_MSG = ("tasks are flat: put a task at the vault root or in a category (top-level folder). "
             "Organise bigger work in a forest page that links [[tasks:...]] or lists them with a ```tasks block.")
 
@@ -194,16 +204,24 @@ class Vault:
             parts = md.relative_to(self.root).parts
             if not include_hidden and any(p.startswith(".") for p in parts):
                 continue
+            if parts[0] == "_assets":   # attachments (even .md files) are not pages
+                continue
             yield md
 
     def iter_searchable(self) -> Iterator[Tuple[Path, str]]:
-        """(file, display_path) for pages plus text extracted from PDF attachments (x.pdf.txt sidecars)."""
+        """(file, display_path) for pages plus attachment text: extracted-text sidecars of
+        pdf/docx/html (reported under the original file's path) and text-like attachments."""
         for md in self.iter_md():
             yield md, self.rel(md)
         assets = self.root / "_assets"
         if assets.is_dir():
-            for t in sorted(assets.rglob("*.pdf.txt")):
-                yield t, self.rel(t)[:-4]
+            for t in sorted(assets.rglob("*")):
+                if not t.is_file():
+                    continue
+                if is_sidecar(t):
+                    yield t, self.rel(t)[:-4]
+                elif t.suffix.lower() in TEXT_EXTS:
+                    yield t, self.rel(t)
 
     # ── write plumbing ──
 
@@ -727,7 +745,7 @@ class Vault:
                     continue
                 rel = item.relative_to(shadow).as_posix()
                 if rel.startswith("_assets/") and item.is_file():
-                    if not item.name.endswith(".pdf.txt"):   # deleted attachment (sidecar travels with it)
+                    if not is_sidecar(item):   # deleted attachment (its text sidecar travels with it)
                         results.append({"shadow_path": rel, "path": rel, "name": "attachment: " + item.name,
                                         "is_folder": False, "kind": "attachment"})
                 elif item.is_dir() and (item / "index.md").exists():

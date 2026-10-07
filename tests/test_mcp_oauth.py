@@ -76,6 +76,10 @@ def test_mcp_full_tool_surface(server, wtok, web):
         ("create", {"name": "Sync meeting", "vault": "forest", "template": "meeting"}),
         ("capture", {"text": "remember this", "url": "https://example.org/x"}),
         ("attach", {"ref": "forest:agent-page", "filename": "pic.png", "base64_data": png}),
+        ("attach", {"ref": "forest:agent-page", "filename": "brief.txt", "embed": False,
+                    "base64_data": base64.b64encode(b"pangolin briefing text").decode()}),
+        ("read", {"ref": "forest:agent-page", "attachments": True}),
+        ("attach", {"ref": "forest:agent-page", "url": "http://127.0.0.1:1/x.pdf"}),
         ("attachments", {"ref": "forest:agent-page"}),
         ("read_attachment", {"path": "forest:_assets/agent-page/pic.png"}),
         ("attach", {"ref": "forest:agent-page", "filename": "tmp.txt", "base64_data": base64.b64encode(b"bye").decode()}),
@@ -101,7 +105,7 @@ def test_mcp_full_tool_surface(server, wtok, web):
     for (name, _), res in zip(calls, out["results"]):
         R.setdefault(name, []).append(res)
         if res[0] == "text":
-            assert not (res[1].startswith("error:") and name != "write"), (name, res)
+            assert not (res[1].startswith("error:") and name not in ("write", "attach")), (name, res)
     assert j(R["vaults"][0][1])["access"] == "write"
     read1 = R["read"][0][1]
     assert "sha=" in read1 and '"url"' in read1 and "[[forest:agent-page]]" in read1
@@ -109,6 +113,12 @@ def test_mcp_full_tool_surface(server, wtok, web):
     assert j(R["search"][0][1])[0]["path"] == "agent-page.md"
     assert "tasks:linked.md" in j(R["links"][0][1])["backlinks"]
     assert R["read_attachment"][0] == ("image", "image/png")
+    assert j(R["attach"][0][1])["embedded"] is True and "pangolin" in j(R["attach"][1][1])["text_preview"]
+    full = R["read"][2][1]
+    assert "![pic](/api/forest/asset/_assets/agent-page/pic.png)" in full           # embedded inline
+    assert '"kind": "image"' in full and "<attachment path=forest:_assets/agent-page/brief.txt kind=text>" in full
+    assert "pangolin briefing text" in full
+    assert R["attach"][2][1].startswith("error:") and "public" in R["attach"][2][1]
     assert R["write"][1][1].startswith("error:") and "changed" in R["write"][1][1]
     assert "tasks:agent-task.md" in R["create"][1][1]
     assert "sync-meeting" in R["create"][3][1]

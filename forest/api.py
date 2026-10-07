@@ -867,6 +867,30 @@ async def upload_asset(vault: str, page: str = Form(...), file: UploadFile = Fil
         return features.save_asset(vault, page, file.filename or "file", data)
 
 
+class AssetFromUrl(BaseModel):
+    page: str
+    url: str
+    filename: Optional[str] = None
+
+
+@app.post("/api/{vault}/assets/from-url", status_code=201)
+def upload_asset_from_url(vault: str, body: AssetFromUrl):
+    """Download a public file and attach it to a page (internal/private addresses are refused)."""
+    V(vault, True)
+    with _errors():
+        return features.attach_from_url(vault, body.page, body.url, body.filename)
+
+
+@app.get("/api/{vault}/asset-text/{path:path}")
+def get_asset_text(vault: str, path: str):
+    """Extracted text of an attachment (pdf, docx, html, text formats)."""
+    with _errors():
+        text = features.asset_text(V(vault).name, path)
+    if text is None:
+        raise HTTPException(415, "no text for this file type")
+    return {"path": path, "text": text}
+
+
 @app.get("/api/{vault}/assets/{path:path}")
 def list_assets(vault: str, path: str):
     with _errors():

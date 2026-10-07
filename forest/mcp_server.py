@@ -191,12 +191,13 @@ def ls(path: Optional[str] = None, vault: Optional[str] = None) -> str:
 
 @tool(RO)
 def read(ref: str, vault: Optional[str] = None, raw: bool = False, section: Optional[str] = None,
-         offset: int = 0, limit: int = 0, line_numbers: bool = False) -> str:
-    """Read a page. Returns metadata (incl. sha for safe edits, outline, url) and markdown body.
-    raw=True returns the exact file text (frontmatter + body) - what edit/write operate on.
+         offset: int = 0, limit: int = 0, line_numbers: bool = False, attachments: bool = False) -> str:
+    """Read a page. Returns metadata (incl. sha for safe edits, outline, url, attached files) and
+    markdown body. raw=True returns the exact file text (frontmatter + body) - what edit/write operate on.
     section="Heading" returns only that section (saves context; see outline in metadata).
     offset/limit select a line range (0-based offset, limit 0 = all); line_numbers prefixes lines.
-    A ref may also carry a section: "page#Heading"."""
+    attachments=True also appends the extracted text of attached pdf/docx/html/text files
+    (images: use read_attachment to see them). A ref may also carry a section: "page#Heading"."""
     if "#" in ref and not section:
         ref, section = ref.split("#", 1)
     v, p = _vault_for(ref, vault)
@@ -220,8 +221,22 @@ def read(ref: str, vault: Optional[str] = None, raw: bool = False, section: Opti
         meta["outline"] = [("  " * (h["level"] - 1)) + h["text"] for h in heads]
     if v.is_ai_readonly(page.path):
         meta["ai"] = "readonly"
+    files = features.list_assets(v.name, page.path)
+    if files:
+        meta["attachments"] = [{"path": f"{v.name}:{a['path']}", "kind": a["kind"], "size": a["size"]} for a in files]
     head = f"<page vault={v.name} path={page.path} sha={page.sha}>\n{_j(meta)}\n</page>\n"
-    return head + "\n".join(lines)
+    body = head + "\n".join(lines)
+    if attachments and files:
+        budget = 80_000
+        for a in files:
+            if a["kind"] in ("image", "binary") or budget <= 0:
+                continue
+            text = features.asset_text(v.name, a["path"]) or ""
+            chunk = text[: min(20_000, budget)]
+            budget -= len(chunk)
+            more = f"\n[... {len(text) - len(chunk)} more chars: read_attachment with offset]" if len(text) > len(chunk) else ""
+            body += f"\n\n<attachment path={v.name}:{a['path']} kind={a['kind']}>\n{chunk}{more}\n</attachment>"
+    return body
 
 
 @tool(RO)
@@ -371,9 +386,9 @@ def attachments(ref: str, vault: Optional[str] = None) -> str:
 
 
 @tool(RO)
-def read_attachment(path: str, vault: Optional[str] = None):
-    """Read an attachment by its path (from attachments). Images come back as images you can see;
-    PDFs as extracted text; text files as text."""
+def read_attachment(path: str, vault: Optional[str] = None, offset: int = 0, max_chars: int = 50_000):
+    """Read an attachment (path from attachments / read). Images come back as images you can see;
+    pdf, docx, html and text files as extracted text (offset/max_chars page through long documents)."""
     v, p = _vault_for(path, vault)
     f = features.asset_file(v.name, p)
     suf = f.suffix.lower()
@@ -381,12 +396,13 @@ def read_attachment(path: str, vault: Optional[str] = None):
         if f.stat().st_size > 8 * 1024 * 1024:
             return "error: image larger than 8 MB"
         return Image(data=f.read_bytes(), format={"jpg": "jpeg"}.get(suf[1:], suf[1:]))
-    if suf == ".pdf":
-        return features.pdf_text(v.name, p)
-    try:
-        return f.read_text(encoding="utf-8")[:200_000]
-    except UnicodeDecodeError:
-        return f"binary file ({f.stat().st_size} bytes): {f.name}"
+    text = features.asset_text(v.name, p)
+    if text is None:
+        return f"binary file ({f.stat().st_size} bytes, {features.asset_kind(f.name)}): {f.name} - no text to extract"
+    chunk = text[offset: offset + max_chars]
+    if offset + max_chars < len(text):
+        chunk += f"\n[... {len(text) - offset - max_chars} more chars: call again with offset={offset + max_chars}]"
+    return chunk
 
 
 @tool(DESTRUCTIVE, write=True)
@@ -398,15 +414,29 @@ def delete_attachment(path: str, vault: Optional[str] = None) -> str:
 
 
 @tool(RW, write=True)
-def attach(ref: str, filename: str, base64_data: str, vault: Optional[str] = None) -> str:
-    """Attach a file (base64-encoded) to a page. Returns the markdown to embed/link it; this does
-    not edit the page - append/edit the returned markdown where it belongs."""
+def attach(ref: str, url: Optional[str] = None, base64_data: Optional[str] = None,
+           filename: Optional[str] = None, vault: Optional[str] = None, embed: bool = True) -> str:
+    """Attach a file to a page: either url (a public http(s) file - the server downloads it; prefer
+    this for documents on the web) or base64_data + filename. Documents (pdf, docx, html, text) become
+    searchable. embed=True (default) also adds it to the page: images inline, other files as a link.
+    Use embed=False and place the returned markdown yourself (edit) if position matters."""
     v, p = _vault_for(ref, vault, write=True)
-    try:
-        data = base64.b64decode(base64_data, validate=True)
-    except Exception:
-        raise ValueError("base64_data is not valid base64")
-    return _j(features.save_asset(v.name, p, filename, data))
+    if url:
+        res = features.attach_from_url(v.name, p, url, filename)
+    elif base64_data:
+        try:
+            data = base64.b64decode(base64_data, validate=True)
+        except Exception:
+            raise ValueError("base64_data is not valid base64")
+        res = features.save_asset(v.name, p, filename or "file", data)
+    else:
+        raise ValueError("give url or base64_data")
+    if embed:
+        v.append_to_page(p, res["markdown"], timestamp=False)
+        res["embedded"] = True
+    if res["kind"] in ("pdf", "document", "text"):
+        res["text_preview"] = (features.asset_text(v.name, res["path"]) or "")[:500]
+    return _j(res)
 
 
 @tool(RW, write=True)

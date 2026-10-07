@@ -1503,6 +1503,7 @@ function showEditMode() {
         <button class="ins-btn" onclick="insertMd('hr')" title="Horizontal line">---</button>
         <button class="ins-btn" onclick="insertMd('tasks')" title="Live list of tasks with a tag">tasks</button>
         <button class="ins-btn" onclick="pickFile()" title="Attach file (or drag / paste into the text)">file</button>
+        <button class="ins-btn" onclick="attachUrl()" title="Download a file from a URL and attach it">url</button>
       </div>
       <textarea id="edit-textarea" spellcheck="false" placeholder="write markdown here..."></textarea>
     `;
@@ -2504,6 +2505,20 @@ async function uploadFiles(files, ta) {
   }
   setSaveStatus('attached');
 }
+async function attachUrl() {
+  const url = prompt('attach a file from URL (pdf, image, document...)');
+  if (!url) return;
+  const ta = document.getElementById('edit-textarea');
+  setSaveStatus('downloading...');
+  try {
+    const a = await api(vp('assets/from-url'), 'POST', { page: S.path, url });
+    const pos = ta.selectionStart;
+    ta.value = ta.value.slice(0, pos) + a.markdown + '\n' + ta.value.slice(ta.selectionEnd);
+    ta.dispatchEvent(new Event('input'));
+    setSaveStatus('attached');
+  } catch (e) { setSaveStatus('failed'); alert(e.message); }
+}
+
 function pickFile() {
   const inp = document.createElement('input'); inp.type = 'file'; inp.multiple = true;
   inp.onchange = () => uploadFiles([...inp.files], document.getElementById('edit-textarea'));

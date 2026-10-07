@@ -489,14 +489,14 @@ def save_asset(vname: str, page_path: str, filename: str, data: bytes) -> dict:
             target = d / f"{Path(name).stem}-{i}{Path(name).suffix}"
             i += 1
         target.write_bytes(data)
-        if target.suffix.lower() == ".pdf":
-            _pdf_sidecar(target)
+        if target.suffix.lower() in store.SIDECAR_EXTS:
+            _sidecar(target)
         return v.rel(target)
 
     rel = v._mutate(f"attach {name} to {page.path}", op)
     url = f"/api/{v.name}/asset/{rel}"
-    is_img = Path(rel).suffix.lower() in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
-    return {"vault": v.name, "path": rel, "url": url, "size": len(data),
+    is_img = asset_kind(rel) == "image"
+    return {"vault": v.name, "path": rel, "url": url, "size": len(data), "kind": asset_kind(rel),
             "markdown": f"![{Path(rel).stem}]({url})" if is_img else f"[{Path(rel).name}]({url})"}
 
 
@@ -506,8 +506,9 @@ def list_assets(vname: str, page_path: str) -> List[dict]:
     d = v.root / asset_folder(page.path)
     if not d.is_dir():
         return []
-    return [{"path": v.rel(f), "url": f"/api/{v.name}/asset/{v.rel(f)}", "size": f.stat().st_size}
-            for f in sorted(d.iterdir()) if f.is_file() and not f.name.endswith(".pdf.txt")]
+    return [{"path": v.rel(f), "url": f"/api/{v.name}/asset/{v.rel(f)}", "size": f.stat().st_size,
+             "kind": asset_kind(f.name)}
+            for f in sorted(d.iterdir()) if f.is_file() and not store.is_sidecar(f)]
 
 
 def _asset_page(v: store.Vault, path: str) -> Optional[str]:
@@ -578,21 +579,108 @@ def asset_file(vname: str, path: str) -> Path:
     return f
 
 
-def _pdf_sidecar(pdf: Path) -> str:
-    side = pdf.with_name(pdf.name + ".txt")
-    if side.exists() and side.stat().st_mtime >= pdf.stat().st_mtime:
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
+
+
+def asset_kind(name: str) -> str:
+    """image | pdf | document (docx/html) | text | binary"""
+    suf = Path(name).suffix.lower()
+    if suf in IMAGE_EXTS:
+        return "image"
+    if suf == ".pdf":
+        return "pdf"
+    if suf in store.SIDECAR_EXTS:
+        return "document"
+    if suf in store.TEXT_EXTS:
+        return "text"
+    return "binary"
+
+
+def _extract(f: Path) -> str:
+    suf = f.suffix.lower()
+    if suf == ".pdf":
+        from pypdf import PdfReader
+        return "\n\n".join((pg.extract_text() or "") for pg in PdfReader(str(f)).pages)
+    if suf == ".docx":
+        import html as _html
+        import zipfile
+        with zipfile.ZipFile(f) as z:
+            xml = z.read("word/document.xml").decode("utf-8", errors="replace")
+        xml = re.sub(r"</w:p>", "\n", xml)
+        xml = re.sub(r"<w:tab/>", "\t", xml)
+        return _html.unescape(re.sub(r"<[^>]+>", "", xml)).strip()
+    if suf in (".html", ".htm"):
+        from markdownify import markdownify
+        raw = f.read_bytes().decode("utf-8", errors="replace")
+        raw = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", "", raw)
+        return re.sub(r"\n{3,}", "\n\n", markdownify(raw, heading_style="ATX")).strip()
+    return f.read_bytes().decode("utf-8", errors="replace")
+
+
+def _sidecar(f: Path) -> str:
+    """Extracted text of a pdf/docx/html attachment, cached as '<file>.txt' next to it (searchable)."""
+    side = f.with_name(f.name + ".txt")
+    if side.exists() and side.stat().st_mtime >= f.stat().st_mtime:
         return side.read_text(encoding="utf-8")
     try:
-        from pypdf import PdfReader
-        text = "\n\n".join((pg.extract_text() or "") for pg in PdfReader(str(pdf)).pages)
+        text = _extract(f)
     except Exception as e:
         text = f"(could not extract text: {e})"
     side.write_text(text, encoding="utf-8")
     return text
 
 
-def pdf_text(vname: str, path: str) -> str:
-    return _pdf_sidecar(asset_file(vname, path))
+def asset_text(vname: str, path: str) -> Optional[str]:
+    """Text of an attachment (pdf, docx, html, text formats); None for images/binaries."""
+    f = asset_file(vname, path)
+    kind = asset_kind(f.name)
+    if kind in ("pdf", "document"):
+        return _sidecar(f)
+    if kind == "text":
+        return f.read_bytes().decode("utf-8", errors="replace")
+    return None
+
+
+def pdf_text(vname: str, path: str) -> str:   # kept for callers of the old name
+    return asset_text(vname, path) or ""
+
+
+def _safe_get(url: str, max_bytes: int):
+    """GET a public http(s) URL, validating every redirect hop against private/internal addresses."""
+    import httpx
+    for _ in range(4):
+        u = urlparse(url)
+        if u.scheme not in ("http", "https") or not u.hostname or not _public_host(u.hostname):
+            raise ValueError("Only public http(s) URLs can be fetched")
+        with httpx.stream("GET", url, follow_redirects=False, timeout=30,
+                          headers={"User-Agent": "Mozilla/5.0 (forest)"}) as r:
+            if r.is_redirect:
+                url = urljoin(url, r.headers.get("location", ""))
+                continue
+            r.raise_for_status()
+            data = b""
+            for chunk in r.iter_bytes():
+                data += chunk
+                if len(data) > max_bytes:
+                    raise ValueError(f"Download larger than {max_bytes // 1024 // 1024} MB")
+            return r, data, url
+    raise ValueError("Too many redirects")
+
+
+def attach_from_url(vname: str, page_path: str, url: str, filename: Optional[str] = None) -> dict:
+    """Download a public file and attach it to a page."""
+    import mimetypes
+    r, data, final = _safe_get(url, MAX_BYTES)
+    if not filename:
+        cd = r.headers.get("content-disposition", "")
+        m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', cd)
+        filename = m.group(1) if m else (Path(urlparse(final).path).name or "download")
+    if not Path(filename).suffix:
+        ext = mimetypes.guess_extension((r.headers.get("content-type") or "").split(";")[0].strip()) or ""
+        filename += ext
+    res = save_asset(vname, page_path, filename, data)
+    res["source"] = final
+    return res
 
 
 # ── Review bundle ─────────────────────────────────────────────────────────────

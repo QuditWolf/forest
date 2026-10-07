@@ -159,6 +159,59 @@ def test_attachments(agent, server, web):
     assert httpx.get(server.base + a["url"]).status_code == 401
 
 
+def _docx(text: str) -> bytes:
+    import io, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        z.writestr("word/document.xml", '<w:document xmlns:w="w"><w:body><w:p><w:r><w:t>' + text +
+                   '</w:t></w:r></w:p><w:p><w:r><w:t>second para &amp; more</w:t></w:r></w:p></w:body></w:document>')
+    return buf.getvalue()
+
+
+def test_attachment_ingest(agent, server):
+    agent.post("/api/forest/pages", json={"name": "Docs"})
+    up = lambda name, data: agent.post("/api/forest/assets", data={"page": "docs.md"}, files={"file": (name, data)}).json()
+    d = up("spec.docx", _docx("narwhal protocol"))
+    h = up("page.html", b"<html><head><style>.x{}</style><script>evil()</script></head><body><h1>Otter memo</h1><p>beaver</p></body></html>")
+    c = up("data.csv", b"name,score\nquokka,9\n")
+    m = up("notes.md", b"# not a page\nwombat\n")
+    assert [x["kind"] for x in (d, h, c, m)] == ["document", "document", "text", "text"]
+    # extracted text endpoint
+    assert "narwhal protocol" in agent.get(f"/api/forest/asset-text/{d['path']}").json()["text"]
+    ht = agent.get(f"/api/forest/asset-text/{h['path']}").json()["text"]
+    assert "# Otter memo" in ht and "evil()" not in ht
+    assert agent.get("/api/forest/asset-text/_assets/docs/missing.pdf").status_code == 404
+    # all searchable, reported under the original file
+    for word, path in [("narwhal", d["path"]), ("beaver", h["path"]), ("quokka", c["path"]), ("wombat", m["path"])]:
+        hits = agent.get("/api/search", params={"q": word}).json()
+        assert any(x["path"] == path for x in hits), word
+    # an attached .md file is not a page
+    assert all(not n["path"].startswith("_assets") for n in agent.get("/api/forest/pages").json())
+    assert "_assets" not in str(agent.get("/api/forest/tree").json())
+    # sidecars are hidden from listings and the trash
+    names = [x["path"].split("/")[-1] for x in agent.get("/api/forest/assets/docs.md").json()]
+    assert sorted(names) == ["data.csv", "notes.md", "page.html", "spec.docx"]
+    agent.delete(d["url"])
+    trash = [t["shadow_path"] for t in agent.get("/api/forest/shadow").json()]
+    assert "_assets/docs/spec.docx" in trash and not any(t.endswith(".docx.txt") for t in trash)
+    # URL attach refuses internal addresses
+    for url in ["http://127.0.0.1:1/x.pdf", "http://169.254.169.254/latest/meta-data", "file:///etc/passwd"]:
+        r = agent.post("/api/forest/assets/from-url", json={"page": "docs.md", "url": url})
+        assert r.status_code == 400, url
+
+
+@pytest.mark.network
+def test_attach_from_url(agent):
+    try:
+        httpx.get("https://example.com", timeout=5)
+    except httpx.HTTPError:
+        pytest.skip("no internet")
+    r = agent.post("/api/forest/assets/from-url", json={"page": "docs.md", "url": "https://example.com/"}).json()
+    assert r["kind"] == "document" and r["path"].endswith(".html")
+    assert "Example Domain" in agent.get(f"/api/forest/asset-text/{r['path']}").json()["text"]
+
+
 def test_ai_readonly(agent, web):
     web.post("/api/forest/pages", json={"name": "Vault Rules", "as_folder": True})
     web.patch("/api/forest/page/vault-rules/index.md", json={"extra": {"ai": "readonly"}})

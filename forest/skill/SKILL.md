@@ -45,7 +45,8 @@ through the `forest` MCP tools (or the REST API at `/api`).
   project, task). Variables: `{{title}} {{date}} {{time}} {{weekday}} {{slug}}`. `project`
   creates a forest page with a ```tasks block for the tag `{{slug}}`; `task` is for the tasks vault.
 - **Attachments**: files in `<vault>/_assets/<page>/`, embedded as `![](/api/<vault>/asset/...)`.
-  PDF text is searchable.
+  Text inside pdf, docx, html and text files (txt, md, csv, json...) is extracted automatically and is
+  searchable with search/grep; `read` lists a page's attachments.
 - **Safety net**: deletes are soft (`.shadow/`, see `trash`/`restore`). Every change is a git
   commit authored by the caller, so `history`, `diff`, `version` and `restore_version` can undo anything.
 - **ai: readonly**: pages (or folders whose index.md has it) you must not change. Writes fail;
@@ -78,7 +79,7 @@ through the `forest` MCP tools (or the REST API at `/api`).
 | `move` / `promote` | restructure | move takes children along; tasks only move between categories; promote is forest-only |
 | `delete` / `trash` / `restore` | soft delete and undo | ask before deleting |
 | `history` / `changes` / `diff` / `version` / `restore_version` | git history and undo | `changes` = recent activity across vaults |
-| `attachments` / `read_attachment` / `attach` / `delete_attachment` | files | images come back viewable, PDFs as text; delete is soft (`trash`/`restore`) |
+| `attachments` / `read_attachment` / `attach` / `delete_attachment` | files | `read` lists a page's files (`attachments=True` includes their text); images come back viewable; pdf/docx/html/text as text (`offset` for long ones); `attach(url=...)` downloads a public file, `embed=True` adds it to the page; delete is soft |
 
 Choosing between neighbours:
 - search vs grep vs find: search for topics in prose, grep for exact strings, regex and
@@ -119,9 +120,13 @@ re-read and redo the edit on the fresh text. Never retry blindly with `write`.
 (creates a new commit, nothing is lost). For deleted pages: `trash()` → `restore(shadow_path)`.
 
 **Files**
-`attachments(ref)` → `read_attachment(path)` (images are visible to you, PDFs as text).
-To add one: `attach(ref, filename, base64_data)`, then put the returned markdown into the
-page with `edit` or `append`.
+- Reading: `read(ref, attachments=True)` gives the page plus the text of its documents in one call;
+  `read_attachment(path)` for images (you see them) or to page through a long PDF (`offset`).
+  `search`/`grep` already cover attachment text, so search first when looking for something in documents.
+- Adding: `attach(ref, url="https://...")` for files on the web (the server downloads it), or
+  `attach(ref, base64_data=..., filename=...)` for content you have. It is embedded in the page by
+  default; pass `embed=False` and place the returned markdown with `edit` when position matters.
+  After attaching a document, summarise it into the page (with a link to the file) so it is useful at a glance.
 
 **Plan a project (tasks + organizer page)**
 1. `create(name="Alpha launch", vault="forest", parent="projects/index.md", template="project")`:
