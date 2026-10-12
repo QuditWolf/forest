@@ -683,6 +683,52 @@ def attach_from_url(vname: str, page_path: str, url: str, filename: Optional[str
     return res
 
 
+# ── Upload links (let a person attach files to one page without logging in) ──
+
+def _upload_signer():
+    from itsdangerous import URLSafeSerializer
+    from .config import session_secret
+    return URLSafeSerializer(session_secret(), salt="forest-upload-link")
+
+
+def make_upload_link(vname: str, page_path: str, minutes: int = 60, embed: bool = True, by: str = "") -> dict:
+    """Signed, expiring link that can only add attachments to this one page."""
+    import time
+    v = store.vault(vname)
+    page = v.get_page(page_path)
+    v._guard(page.path)
+    minutes = max(5, min(int(minutes), 7 * 24 * 60))
+    exp = int(time.time()) + minutes * 60
+    tok = _upload_signer().dumps({"v": vname, "p": page.path, "e": exp, "m": int(embed), "by": by[:60]})
+    base = PUBLIC_URL or ""
+    return {"url": f"{base}/upload/{tok}", "page": f"{vname}:{page.path}", "name": page.name,
+            "expires": datetime.fromtimestamp(exp, TZ).isoformat(timespec="minutes")}
+
+
+def check_upload_link(token: str) -> dict:
+    import time
+    from itsdangerous import BadSignature
+    try:
+        d = _upload_signer().loads(token)
+    except BadSignature:
+        raise PermissionError("invalid upload link")
+    if d["e"] < time.time():
+        raise PermissionError("this upload link has expired - ask for a new one")
+    page = store.vault(d["v"]).get_page(d["p"])
+    return {**d, "name": page.name}
+
+
+def upload_via_link(token: str, files: List[Tuple[str, bytes]]) -> List[dict]:
+    d = check_upload_link(token)
+    out = []
+    for name, data in files:
+        res = save_asset(d["v"], d["p"], name, data)
+        if d.get("m"):
+            store.vault(d["v"]).append_to_page(d["p"], res["markdown"], timestamp=False)
+        out.append(res)
+    return out
+
+
 # ── Review bundle ─────────────────────────────────────────────────────────────
 
 def _last_change(v: store.Vault, path: str) -> Optional[datetime]:

@@ -78,6 +78,7 @@ through the `forest` MCP tools (or the REST API at `/api`).
 | `write` | whole-file create/replace | last resort for existing pages |
 | `move` / `promote` | restructure | move takes children along; tasks only move between categories; promote is forest-only |
 | `delete` / `trash` / `restore` | soft delete and undo | ask before deleting |
+| `upload_link` | let the user add a file they have | returns a short-lived link that only uploads into one page; give it to the user |
 | `history` / `changes` / `diff` / `version` / `restore_version` | git history and undo | `changes` = recent activity across vaults |
 | `attachments` / `read_attachment` / `attach` / `delete_attachment` | files | `read` lists a page's files (`attachments=True` includes their text); images come back viewable; pdf/docx/html/text as text (`offset` for long ones); `attach(url=...)` downloads a public file, `embed=True` adds it to the page; delete is soft |
 
@@ -127,6 +128,9 @@ re-read and redo the edit on the fresh text. Never retry blindly with `write`.
   `attach(ref, base64_data=..., filename=...)` for content you have. It is embedded in the page by
   default; pass `embed=False` and place the returned markdown with `edit` when position matters.
   After attaching a document, summarise it into the page (with a link to the file) so it is useful at a glance.
+- Files the user shared in the chat: you see their content, not the file itself, so you cannot attach
+  the original. Offer `upload_link(ref)` and ask the user to open the link and pick the file (works on a
+  phone), then `read(ref, attachments=True)`. You can also save what you read from it as page text.
 
 **Plan a project (tasks + organizer page)**
 1. `create(name="Alpha launch", vault="forest", parent="projects/index.md", template="project")`:

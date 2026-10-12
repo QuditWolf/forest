@@ -57,6 +57,17 @@ def test_cli_workflow(cli, tmp_path):
     assert "Saved" in out and list(tmp_path.glob("forest-backup-*.tar.gz"))
 
 
+def test_cli_attach(cli, tmp_path):
+    cli("add", ".", "Attach target")
+    doc = tmp_path / "minutes.txt"
+    doc.write_text("aardvark committee minutes")
+    out = cli("attach", "attach-target", str(doc))
+    assert "Attached _assets/attach-target/minutes.txt (text" in out
+    assert "_assets/attach-target/minutes.txt" in cli("cat", "attach-target")          # embedded link
+    assert "minutes.txt" in cli("search", "aardvark committee")
+    assert "public" in cli("attach", "attach-target", "--url", "http://127.0.0.1:1/x.pdf", ok=False)
+
+
 def test_cli_edit_roundtrip(cli, server, tmp_path):
     script = tmp_path / "ed.sh"
     script.write_text("#!/bin/sh\nsed -i 's/^---$/---/; $ a edited-by-editor' \"$1\"\n")

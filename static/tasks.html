@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>tasks</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/lib/theme.css">
 <style>
-body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+body { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
 
 /* top bar (same as forest) */
 #topbar { height: 40px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; padding: 0 12px;
@@ -107,6 +107,51 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
 .ac-item.sel, .ac-item:hover { background: var(--hl); }
 #toast { position: fixed; bottom: 12px; right: 12px; background: var(--fg); color: var(--bg); padding: 4px 10px; font-size: 12px; display: none; }
 @media (max-width: 900px) { .categories { width: 130px; } .detail-panel { width: 290px; } .kbd-hint { display: none; } }
+
+/* ── Mobile-first: one screen at a time (categories -> list -> detail) + bottom bar ── */
+.mobile-only { display: none !important; }
+@media (max-width: 760px) {
+  .mobile-only { display: revert !important; }
+  body { font-size: 15px; }
+  #topbar { height: 48px; padding: 0 8px; gap: 8px; }
+  #topbar .bar-btn:not(#theme-btn) { display: none; }
+  #topbar .crumb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .main { position: relative; }
+  .main > .panel, .main > #calendar { display: none !important; width: 100% !important; border-right: none; }
+  body.m-cats .categories, body.m-list #list-panel, body.m-detail .detail-panel { display: flex !important; }
+  body.m-cal #calendar { display: flex !important; }
+  .panel-header { min-height: 42px; padding: 4px 10px; font-size: 14px; }
+  .back { font-size: 20px; padding: 0 10px 0 0; background: none; border: none; color: var(--fg); }
+  .cat-item { padding: 12px 14px; font-size: 16px; }
+  .task-item { padding: 12px 10px; gap: 10px; font-size: 15px; }
+  .task-icon { width: 22px; font-size: 18px; }
+  .task-meta { font-size: 12px; }
+  .chip { padding: 3px 8px; font-size: 12px; }
+  #filter { font-size: 16px; padding: 8px 10px; }
+  .add-form input[type=text], .add-form select, .add-form input[type=date] { font-size: 16px; padding: 8px; }
+  .detail-body { padding: 12px 14px 40px; }
+  .detail-body select, .detail-body input[type=text], .detail-body input[type=date] { font-size: 16px; padding: 8px; }
+  input.name-input { font-size: 20px; }
+  textarea { font-size: 16px; min-height: 40vh; }
+  .notes-area { font-size: 15px; }
+  .toolbar { padding: 8px 10px; gap: 8px; }
+  .toolbar button { padding: 9px 12px; font-size: 14px; }
+  .row button { padding: 8px 12px; }
+  /* calendar: compact month, tap a task to open it, reschedule via the due field */
+  .cal-head { padding: 6px 8px; }
+  .cal-head button { padding: 6px 12px; }
+  .cal-grid { grid-auto-rows: minmax(64px, auto); }
+  .cal-day { padding: 2px; }
+  .cal-task { font-size: 10px; padding: 3px 1px; }
+  .cal-num a { display: none; }
+  #bottomnav { display: flex !important; height: calc(56px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
+    border-top: 1px solid var(--border); background: var(--sidebar-bg); flex-shrink: 0; }
+  #bottomnav button, #bottomnav a { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    background: none; border: none; color: var(--fg); font-size: 11px; text-decoration: none; }
+  #bottomnav span { font-size: 18px; line-height: 1; }
+  #bottomnav .on { font-weight: bold; text-decoration: underline; }
+  #toast { bottom: calc(70px + env(safe-area-inset-bottom)); }
+}
 </style>
 </head>
 <body>
@@ -124,7 +169,7 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
 
 <div class="main">
   <div class="panel categories">
-    <div class="panel-header"><span class="grow">categories</span></div>
+    <div class="panel-header"><span class="grow">categories</span><a class="bar-btn mobile-only" href="/">forest</a></div>
     <div class="panel-body" id="cats"></div>
     <div class="toolbar">
       <button onclick="refresh(true)">refresh</button>
@@ -134,6 +179,7 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
 
   <div class="panel tasks-panel" id="list-panel">
     <div class="panel-header">
+      <button class="back mobile-only" onclick="setView('cats')" aria-label="categories">&lsaquo;</button>
       <span class="grow" id="tasks-title">tasks</span>
       <button class="chip" data-f="undone">open</button>
       <button class="chip" data-f="all">all</button>
@@ -160,6 +206,7 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
 
   <div id="calendar">
     <div class="cal-head">
+      <button class="back mobile-only" onclick="setView('cats')" aria-label="categories">&lsaquo;</button>
       <button onclick="calMove(-1)">&lt;</button>
       <button onclick="calMove(0)">today</button>
       <span class="grow" id="cal-title"></span>
@@ -169,7 +216,7 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
   </div>
 
   <div class="panel detail-panel">
-    <div class="panel-header"><span class="grow">detail</span>
+    <div class="panel-header"><button class="back mobile-only" onclick="setView(S.cat === '*calendar' ? 'cal' : 'list')" aria-label="back">&lsaquo;</button><span class="grow">detail</span>
       <a class="bar-btn" id="copy-link" style="display:none" title="Copy link to this task (shift: copy [[wikilink]])">link</a>
       <a class="bar-btn" id="open-forest" style="display:none">open in forest</a></div>
     <div class="panel-body" id="detail"><div class="empty">select a task</div></div>
@@ -181,6 +228,13 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
   </div>
 </div>
 <div id="toast"></div>
+<nav id="bottomnav" class="mobile-only">
+  <button data-nav="today" onclick="navGo('*agenda:today')"><span>&#9711;</span>today</button>
+  <button data-nav="week" onclick="navGo('*agenda:week')"><span>&#9638;</span>7 days</button>
+  <button data-nav="cats" onclick="setView('cats')"><span>&#9776;</span>lists</button>
+  <button data-nav="cal" onclick="navGo('*calendar')"><span>&#9783;</span>calendar</button>
+  <button data-nav="add" onclick="mobileAddTask()"><span>+</span>add</button>
+</nav>
 
 <script src="/lib/marked.min.js"></script>
 <script src="/lib/purify.min.js"></script>
@@ -264,11 +318,28 @@ async function renderCats() {
   $('cats').querySelectorAll('.cat-item').forEach(d => d.addEventListener('click', () => selectCat(d.dataset.cat)));
 }
 
+// mobile: which single screen is visible (cats | list | cal | detail)
+const isMobile = () => matchMedia('(max-width: 760px)').matches;
+function setView(v) {
+  document.body.classList.remove('m-cats', 'm-list', 'm-cal', 'm-detail');
+  document.body.classList.add('m-' + v);
+  document.querySelectorAll('#bottomnav button').forEach(b => b.classList.toggle('on',
+    (v === 'cats' && b.dataset.nav === 'cats') || (v === 'cal' && b.dataset.nav === 'cal') ||
+    (v === 'list' && ((S.cat === '*agenda:today' && b.dataset.nav === 'today') || (S.cat === '*agenda:week' && b.dataset.nav === 'week')))));
+}
+async function navGo(key) { await selectCat(key); }
+async function mobileAddTask() {
+  if (S.cat.startsWith('*')) await selectCat(S.cat === '*all' ? '*all' : '');
+  setView('list');
+  toggleAdd(true);
+}
+
 async function selectCat(key) {
   S.cat = key; localStorage.setItem('t-cat', key);
   toggleAdd(false);
   await renderCats();
   await loadList();
+  setView(key === '*calendar' ? 'cal' : 'list');
 }
 
 async function addCategory() {
@@ -402,6 +473,7 @@ function calMove(n) {
 
 // ── detail ──
 async function selectTask(t, noHash) {
+  setView('detail');
   S.sel = { vault: t.vault || S.vault, path: t.path };
   S.editingNotes = false;
   S.page = await api(vp('page/' + enc(t.path), S.sel.vault));
@@ -661,6 +733,7 @@ document.addEventListener('keydown', e => {
 });
 
 function openFromHash() {
+  if (location.hash === '#add') { history.replaceState(null, '', '/tasks'); mobileAddTask(); return; }
   const h = decodeURIComponent(location.hash.slice(1));
   const i = h.indexOf('/');
   if (i > 0 && S.vaults.includes(h.slice(0, i)) && h.slice(i + 1)) selectTask({ vault: h.slice(0, i), path: h.slice(i + 1) }, true);
@@ -679,6 +752,7 @@ window.addEventListener('focus', () => { if (!S.editingNotes) refresh(true).catc
   await loadPages();
   await renderCats();
   await loadList();
+  setView(S.cat === '*calendar' ? 'cal' : 'list');
   openFromHash();
 })();
 </script>

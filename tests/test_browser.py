@@ -244,3 +244,95 @@ def test_admin_and_clip(page, server, web):
     caps = [p for p in web.get("/api/forest/pages").json() if p["path"].startswith("inbox/shared")]
     assert caps
     assert not page.errors, page.errors
+
+
+
+@pytest.fixture(scope="module")
+def phone(server, page):
+    """Phone-sized browser (390x844, touch) sharing the logged-in cookies."""
+    ctx = page.context.browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True,
+                                           device_scale_factor=2)
+    ctx.add_cookies(page.context.cookies())
+    pg = ctx.new_page()
+    pg.errors = []
+    pg.on("pageerror", lambda e: pg.errors.append(str(e)))
+    pg.on("dialog", lambda d: d.accept())
+    yield pg
+    ctx.close()
+
+
+def no_hscroll(pg):
+    """Layout stays exactly phone-wide (no zoom-out from an over-wide element) and nothing scrolls sideways."""
+    return pg.evaluate("window.innerWidth === 390 && document.documentElement.scrollWidth <= 391 && window.innerHeight <= 845")
+
+
+def test_mobile_forest(phone, server, web):
+    web.post("/api/forest/pages", json={"name": "Phone Folder", "as_folder": True})
+    web.post("/api/forest/pages", json={"name": "Phone Note", "parent_path": "phone-folder/index.md",
+                                        "content": "# Phone\n" + "long text " * 200 + "\n```\n" + "x" * 300 + "\n```"})
+    phone.goto(server.base + "/#forest/phone-folder/phone-note.md"); settle(phone, 2000)
+    assert phone.is_visible("#bottomnav")
+    assert no_hscroll(phone)                                   # long code blocks scroll inside, page doesn't
+    box = phone.locator("#bottomnav").bounding_box()
+    assert box["y"] + box["height"] <= 845 and box["y"] > 700   # pinned to the bottom
+    # tapping the text does not jump into the editor on phones
+    phone.tap("#view-pane p"); settle(phone, 300)
+    assert not phone.is_visible("#edit-textarea")
+    # drawer: open, pick a page, closes
+    phone.tap("#bottomnav button:has-text('pages')"); settle(phone, 400)
+    assert phone.evaluate("document.body.classList.contains('drawer-open')")
+    phone.tap("#tree .tree-row:has-text('Phone Folder')"); settle(phone, 1200)
+    assert phone.url.endswith("#forest/phone-folder/index.md")
+    assert not phone.evaluate("document.body.classList.contains('drawer-open')")
+    # new-page sheet
+    phone.tap("#bottomnav button:has-text('new')"); settle(phone, 300)
+    phone.tap(".add-sheet button:has-text('sub-page of this page')"); settle(phone, 400)
+    phone.fill("#np-name", "From phone"); phone.tap("#np-overlay .modal-btn.primary"); settle(phone, 1500)
+    assert web.get("/api/forest/page/phone-folder/from-phone.md").status_code == 200
+    # edit via the button, actions row scrolls instead of overflowing
+    phone.tap("#edit-btn"); settle(phone, 400)
+    assert phone.is_visible("#edit-textarea") and no_hscroll(phone)
+    phone.keyboard.press("Escape"); settle(phone, 600)
+    for path in ["/admin", "/clip"]:
+        phone.goto(server.base + path); settle(phone, 1200)
+        assert no_hscroll(phone), path
+    phone.goto(server.base + "/#forest/phone-folder/index.md"); settle(phone, 1500)
+    # search from the bottom bar
+    phone.tap("#bottomnav button:has-text('search')"); settle(phone, 300)
+    phone.keyboard.type("Phone Note"); settle(phone, 900)
+    assert "phone-folder/phone-note.md" in phone.inner_text("#search-results")
+    assert not phone.errors, phone.errors
+
+
+def test_mobile_tasks(phone, server, web):
+    web.post("/api/tasks/pages", json={"name": "Phone Cat", "as_folder": True})
+    web.post("/api/tasks/pages", json={"name": "Phone task", "parent_path": "phone-cat", "state": "todo",
+                                      "due": __import__("datetime").date.today().isoformat()})
+    phone.goto(server.base + "/tasks"); settle(phone, 1500)
+    assert no_hscroll(phone)
+    visible = lambda sel: phone.is_visible(sel)
+    # one screen at a time
+    phone.tap("#bottomnav button:has-text('lists')"); settle(phone, 300)
+    assert visible(".categories") and not visible("#list-panel") and not visible(".detail-panel")
+    phone.tap(".cat-item[data-cat='phone-cat']"); settle(phone, 800)
+    assert visible("#list-panel") and not visible(".categories")
+    phone.tap(".task-item:has-text('Phone task')"); settle(phone, 800)
+    assert visible(".detail-panel") and not visible("#list-panel")
+    assert phone.input_value("#d-name") == "Phone task"
+    phone.select_option("#d-state", "in-progress"); settle(phone, 800)
+    assert web.get("/api/tasks/page/phone-cat/phone-task.md").json()["state"] == "in-progress"
+    phone.tap(".detail-panel .back"); settle(phone, 300)
+    assert visible("#list-panel")
+    # add from the bottom bar
+    phone.tap("#bottomnav button:has-text('add')"); settle(phone, 400)
+    phone.fill("#new-name", "Added on phone"); phone.keyboard.press("Enter"); settle(phone, 1200)
+    assert any(p["name"] == "Added on phone" for p in web.get("/api/tasks/pages").json())
+    # today + calendar
+    phone.tap("#bottomnav button:has-text('today')"); settle(phone, 800)
+    assert "Phone task" in phone.inner_text("#tasks")
+    phone.tap("#bottomnav button:has-text('calendar')"); settle(phone, 1200)
+    assert visible("#calendar") and no_hscroll(phone)
+    # forest's "task" shortcut lands in the add form
+    phone.goto(server.base + "/tasks#add"); settle(phone, 1500)
+    assert visible("#new-name")
+    assert not phone.errors, phone.errors

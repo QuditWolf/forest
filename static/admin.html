@@ -30,6 +30,16 @@ pre { padding: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-a
 .dim { color: var(--dim); } .bad { color: var(--bad); } .ok { color: #2a2; }
 .tabs button { border-bottom: none; } .tabs button.on { background: var(--hl); font-weight: bold; }
 .small { font-size: 11px; }
+@media (max-width: 760px) {
+  body { padding: 10px 10px 40px; }
+  header { flex-wrap: wrap; gap: 10px; }
+  section { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { min-width: 640px; }
+  .row { gap: 8px; }
+  .row input, .row select, .row button { font-size: 16px; padding: 8px; }
+  #t-name { width: 100% !important; }
+  pre { font-size: 11px; }
+}
 </style>
 </head>
 <body>

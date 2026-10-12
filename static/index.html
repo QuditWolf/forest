@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>forest</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -761,6 +761,7 @@ body.mode-modern .toastui-editor-contents {
 
 <!-- Top bar -->
 <div id="topbar">
+  <button class="bar-btn mobile-only" id="menu-btn" onclick="toggleDrawer()" title="Pages" aria-label="pages">&#9776;</button>
   <span class="brand">forest</span>
   <input type="text" id="search-input" placeholder="search (/)..." autocomplete="off" tabindex="4" title="Search pages [/]">
   <button class="bar-btn" onclick="openCapture()" title="Ctrl+I" tabindex="1">+ capture<span class="kbd-hint">[Ctrl+I]</span></button>
@@ -774,6 +775,28 @@ body.mode-modern .toastui-editor-contents {
     <button class="bar-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle dark/light mode">&#9788;</button>
     <button class="bar-btn" id="mode-btn" onclick="toggleMode()" title="Toggle modern/minimal UI">minimal</button>
     <button class="bar-btn" onclick="openHelp()" tabindex="3" title="Keyboard shortcuts">?<span class="kbd-hint">[?]</span></button>
+  </div>
+</div>
+
+<!-- Mobile: bottom navigation + drawer backdrop -->
+<nav id="bottomnav" class="mobile-only">
+  <button onclick="toggleDrawer()"><span>&#9776;</span>pages</button>
+  <button onclick="openSearch('')"><span>&#8981;</span>search</button>
+  <button onclick="openToday()"><span>&#9711;</span>today</button>
+  <button onclick="openMobileAdd()"><span>+</span>new</button>
+  <a href="/tasks"><span>&#10003;</span>tasks</a>
+</nav>
+<div id="drawer-backdrop" onclick="toggleDrawer(false)"></div>
+<div class="overlay" id="add-overlay" onclick="if(event.target===this)closeMobileAdd()">
+  <div class="modal">
+    <div class="modal-head">new <button class="modal-x" onclick="closeMobileAdd()">x</button></div>
+    <div class="modal-body add-sheet">
+      <button class="modal-btn" onclick="mobileAdd('capture')">quick capture to inbox</button>
+      <button class="modal-btn" onclick="mobileAdd('here')">page next to this one</button>
+      <button class="modal-btn" onclick="mobileAdd('sub')">sub-page of this page</button>
+      <button class="modal-btn" onclick="mobileAdd('top')">page at the top level</button>
+      <a class="modal-btn" href="/tasks#add" style="text-align:center;text-decoration:none">task (opens tasks)</a>
+    </div>
   </div>
 </div>
 
@@ -1058,6 +1081,97 @@ a.bar-btn { text-decoration: none; }
 #view-pane img { max-width: 100%; }
 </style>
 
+<style>
+/* ── Mobile-first layout (phones / narrow windows) ─────────────────────────── */
+.mobile-only { display: none !important; }
+#drawer-backdrop { display: none; }
+@media (max-width: 760px) {
+  .mobile-only { display: revert !important; }
+  html, body { height: 100%; }
+  body, body.mode-modern { height: 100vh; height: 100dvh; }
+  body, body.mode-modern {
+    grid-template-columns: 1fr;
+    grid-template-rows: 48px 1fr calc(56px + env(safe-area-inset-bottom));
+    font-size: 15px;
+  }
+  /* top bar: brand + search only */
+  #topbar, body.mode-modern #topbar { padding: 0 8px; gap: 6px; }
+  #topbar .bar-btn:not(#menu-btn):not(#theme-btn), #topbar .kbd-hint { display: none; }
+  #topbar .meta-controls { gap: 0; }
+  #topbar .brand { font-size: 16px; margin-right: 0; }
+  #search-input { max-width: none; min-width: 0; font-size: 16px; padding: 6px 10px; }
+  #menu-btn { font-size: 20px; padding: 4px 8px; }
+  body.mode-modern #toolbar-btn, #toolbar-btn { display: none !important; }
+  #topbar { overflow: hidden; min-width: 0; }
+  #search-input { flex: 1 1 auto; width: 0; }
+  /* drawer */
+  #sidebar {
+    position: fixed; top: 48px; bottom: calc(56px + env(safe-area-inset-bottom)); left: 0;
+    width: 86vw; max-width: 340px; z-index: 45; transform: translateX(-102%);
+    transition: transform .2s ease; box-shadow: 2px 0 12px rgba(0,0,0,.25);
+  }
+  body.drawer-open #sidebar { transform: none; }
+  body.drawer-open #drawer-backdrop { display: block; position: fixed; inset: 48px 0 0 0; background: rgba(0,0,0,.35); z-index: 44; }
+  .tree-row, body.mode-modern .tree-row { padding-top: 9px; padding-bottom: 9px; font-size: 15px; margin: 1px 6px; }
+  .tree-tog { width: 26px; font-size: 13px; }
+  #topbar { grid-row: 1; }
+  #main { grid-column: 1; grid-row: 2; min-width: 0; }
+  #bottomnav { grid-row: 3; }
+  .add-sheet { gap: 8px; }
+  .add-sheet .modal-btn { padding: 12px; text-align: left; }
+  /* page head */
+  #breadcrumb, body.mode-modern #breadcrumb { padding: 6px 12px; font-size: 12px; }
+  #page-head, body.mode-modern #page-head { padding: 10px 12px; }
+  #page-title-row { flex-wrap: wrap; gap: 6px; }
+  #page-title, body.mode-modern #page-title { font-size: 22px; width: 100%; flex-basis: 100%; }
+  .page-actions { width: 100%; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; -webkit-overflow-scrolling: touch; }
+  .act-btn, body.mode-modern .act-btn { padding: 7px 12px; flex-shrink: 0; font-size: 13px; }
+  #save-status { order: 99; }
+  #meta-row { gap: 8px 14px; }
+  .meta-tags { width: 140px; font-size: 14px; }
+  /* reading */
+  #view-pane, body.mode-modern #view-pane { padding: 14px 14px 40px; font-size: 16px; line-height: 1.65; }
+  body.mode-modern #view-pane h1 { font-size: 24px; margin: 18px 0 10px; }
+  body.mode-modern #view-pane h2 { font-size: 20px; margin: 16px 0 8px; }
+  body.mode-modern #view-pane h3 { font-size: 17px; }
+  #view-pane pre, #view-pane table { display: block; overflow-x: auto; max-width: 100%; }
+  #view-pane img { height: auto; }
+  .mermaid-wrap svg { max-width: 100%; height: auto; }
+  /* editing */
+  #edit-textarea { font-size: 16px; padding: 12px; }
+  #insert-toolbar.visible { flex-wrap: nowrap; overflow-x: auto; }
+  .ins-btn { padding: 7px 10px; font-size: 13px; flex-shrink: 0; }
+  #ac-box { left: 8px; right: 8px; width: auto; top: 46px; font-size: 14px; }
+  .ac-item { padding: 8px 10px; }
+  /* footer */
+  #footer-bar, body.mode-modern #footer-bar { padding: 8px 12px; font-size: 13px; max-height: 30vh; overflow-y: auto; }
+  .footer-link { padding: 3px 0; display: inline-block; }
+  /* modals become sheets */
+  .overlay { padding-top: 0; align-items: flex-end; }
+  .modal, .modal[style] { width: 100vw !important; max-width: 100vw; max-height: 88vh; border-left: none; border-right: none; border-bottom: none; }
+  .modal-body { padding: 12px; }
+  .fi, .fs, #search-q { font-size: 16px; padding: 8px; }
+  .modal-btn { padding: 9px 16px; font-size: 14px; }
+  .two-col { grid-template-columns: 1fr; }
+  .sr { padding: 10px 6px; }
+  #graph-box { max-height: 70vh; }
+  #toc-panel { left: 10px; right: 10px; max-width: none; max-height: 50vh; font-size: 15px; }
+  #toc-panel a { padding: 6px 0; }
+  /* bottom bar */
+  #bottomnav {
+    display: flex !important; grid-column: 1; border-top: 1px solid var(--border); background: var(--sidebar-bg);
+    padding-bottom: env(safe-area-inset-bottom); z-index: 46;
+  }
+  #bottomnav button, #bottomnav a {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    background: none; border: none; color: var(--fg); font-family: var(--font); font-size: 11px; text-decoration: none; cursor: pointer;
+  }
+  #bottomnav span { font-size: 18px; line-height: 1; }
+  #bottomnav button:active, #bottomnav a:active { background: var(--hl); }
+}
+</style>
+
+
 <script src="/lib/marked.min.js"></script>
 <script src="/lib/purify.min.js"></script>
 <script>
@@ -1326,6 +1440,7 @@ function expandTo(path) {
 
 // ── Navigation ────────────────────────────────────────────────────────────────
 async function navTo(path, vault) {
+  toggleDrawer(false);
   if (S.editing) await save();
   if (vault && vault !== S.vault) await switchVault(vault, true);
   try {
@@ -1531,6 +1646,21 @@ function toggleEdit() {
   }
 }
 
+const isMobile = () => matchMedia('(max-width: 760px)').matches;
+function toggleDrawer(force) {
+  const open = force ?? !document.body.classList.contains('drawer-open');
+  document.body.classList.toggle('drawer-open', open);
+}
+function openMobileAdd() { document.getElementById('add-overlay').classList.add('open'); }
+function closeMobileAdd() { document.getElementById('add-overlay').classList.remove('open'); }
+function mobileAdd(kind) {
+  closeMobileAdd();
+  if (kind === 'here') openNewPage(S.page ? (S.page.is_folder ? S.path : S.page.parent_path || null) : null);
+  else if (kind === 'sub') openNewPage(S.path);
+  else if (kind === 'top') openNewPage(null);
+  else if (kind === 'capture') openCapture();
+}
+
 function handleViewClick(e) {
   const wl = e.target.closest('a.wikilink');
   if (wl && wl.dataset.taskUrl) { e.preventDefault(); location.href = wl.dataset.taskUrl; return; }
@@ -1540,6 +1670,7 @@ function handleViewClick(e) {
   if (tg) { e.preventDefault(); openTag(tg.dataset.tag); return; }
   if (e.target.closest('a,input,select,button,label,.mermaid-wrap')) return;
   if (window.getSelection().toString()) return;  // allow selecting text without entering edit
+  if (isMobile()) return;                        // phones: tap scrolls/reads; use the edit button
   if (!S.editing) showEditMode();
 }
 
@@ -2570,6 +2701,8 @@ document.addEventListener('keydown', e => {
     if (document.getElementById('hist-overlay').classList.contains('open'))   { closeHistory(); return; }
     if (document.getElementById('tag-overlay').classList.contains('open'))    { closeTag(); return; }
     if (document.getElementById('graph-overlay').classList.contains('open'))  { closeGraph(); return; }
+    if (document.getElementById('add-overlay').classList.contains('open'))    { closeMobileAdd(); return; }
+    if (document.body.classList.contains('drawer-open')) { toggleDrawer(false); return; }
     if (document.getElementById('toc-panel')) { document.getElementById('toc-panel').remove(); return; }
     if (document.getElementById('shadow-overlay').classList.contains('open')) { closeShadow(); return; }
     if (S.editing) { save().then(() => showViewMode()); return; }

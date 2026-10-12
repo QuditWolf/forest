@@ -432,6 +432,28 @@ def edit(ref: str, vault: Optional[str] = VaultOpt):
 
 
 @app.command()
+def attach(ref: str = typer.Argument(..., help="Page to attach to"),
+           files: List[Path] = typer.Argument(None, help="Files to upload"),
+           url: Optional[str] = typer.Option(None, "--url", "-u", help="Download from a URL instead"),
+           no_embed: bool = typer.Option(False, "--no-embed", help="Don't add a link/image to the page"),
+           vault: Optional[str] = VaultOpt):
+    """Attach files (or a URL) to a page; pdf/docx/html/text become searchable."""
+    f = _client()
+    v, path = _ref(f, ref, vault)
+    try:
+        page = f.page(v, path)["path"]
+        results = [f.attach_url(v, page, url)] if url else [f.attach(v, page, p) for p in (files or [])]
+        if not results:
+            _die("give one or more files, or --url")
+        for r in results:
+            if not no_embed:
+                f.append_raw(v, page, r["markdown"])
+            console.print(f"[green]Attached[/green] {r['path']} ({r['kind']}, {r['size']} bytes)")
+    except (ClientError, OSError) as e:
+        _die(str(e))
+
+
+@app.command()
 def rm(ref: str, force: bool = typer.Option(False, "--force", "-f"), vault: Optional[str] = VaultOpt):
     """Soft-delete a page (moved to .shadow, restorable)."""
     f = _client()

@@ -20,7 +20,7 @@ EXPECTED_TOOLS = {
     "vaults", "tree", "ls", "read", "search", "grep", "find", "links", "graph", "tags", "agenda", "review",
     "daily_note", "templates", "create", "capture", "write", "edit", "append", "update", "move", "promote",
     "delete", "trash", "restore", "history", "changes", "version", "diff", "restore_version",
-    "attachments", "read_attachment", "attach", "delete_attachment",
+    "attachments", "read_attachment", "attach", "delete_attachment", "upload_link",
 }
 
 
@@ -224,3 +224,46 @@ def test_oauth_connector_flow(server, web):
                                    "code_verifier": "wrong"})
     assert bad.status_code == 400
     assert {"oauth.register", "oauth.approved", "oauth.token", "oauth.denied"} <= {e["event"] for e in audit(web, "oauth")}
+
+
+
+def test_upload_link_flow(server, wtok, web):
+    import os, time
+    from itsdangerous import URLSafeSerializer
+    web.post("/api/forest/pages", json={"name": "Receipts"})
+    out = run_mcp(server, wtok, [("upload_link", {"ref": "forest:receipts", "minutes": 30})])
+    link = j(out["results"][0][1])
+    assert link["page"] == "forest:receipts.md" and "/upload/" in link["url"]
+    url = link["url"] if link["url"].startswith("http") else server.base + link["url"]
+    anon = httpx.Client()
+    page = anon.get(url)
+    assert page.status_code == 200 and "upload to: Receipts" in page.text and page.headers["referrer-policy"] == "no-referrer"
+    r = anon.post(url, files={"file": ("scan.pdf", _pdf_bytes("tapir invoice 77"))})
+    assert r.status_code == 200 and r.json()[0]["kind"] == "pdf"
+    content = web.get("/api/forest/page/receipts.md").json()["content"]
+    assert "_assets/receipts/scan.pdf" in content                                       # embedded
+    assert any(h["path"] == "_assets/receipts/scan.pdf" for h in web.get("/api/search", params={"q": "tapir invoice"}).json())
+    hist = web.get("/api/forest/history", params={"path": "receipts.md"}).json()
+    assert hist[0]["author"] == "upload-link"
+    # tampered / expired / wrong use
+    assert anon.post(url + "x", files={"file": ("a.txt", b"x")}).status_code == 403
+    assert anon.get(url + "x").status_code == 403
+    signer = URLSafeSerializer(server.env["FOREST_SECRET"], salt="forest-upload-link")
+    old = signer.dumps({"v": "forest", "p": "receipts.md", "e": int(time.time()) - 5, "m": 1, "by": "x"})
+    r = anon.post(server.base + "/upload/" + old, files={"file": ("a.txt", b"x")})
+    assert r.status_code == 403 and "expired" in r.text
+    # link only adds attachments to that page: no other API access
+    assert anon.get(server.base + "/api/forest/tree").status_code == 401
+    # readonly pages can't get links; read-only tokens can't create them
+    web.post("/api/forest/pages", json={"name": "Locked docs"})
+    web.patch("/api/forest/page/locked-docs.md", json={"extra": {"ai": "readonly"}})
+    out = run_mcp(server, wtok, [("upload_link", {"ref": "forest:locked-docs"})])
+    assert "readonly" in out["results"][0][1]
+    ro = make_token(web, "ro-upl", "read")
+    assert "read-only" in run_mcp(server, ro, [("upload_link", {"ref": "forest:receipts"})])["results"][0][1]
+    assert {"upload_link.created", "upload_link.used"} <= {e["event"] for e in audit(web, "upload_link")}
+
+
+def _pdf_bytes(text):
+    from test_features import _pdf_bytes as mk
+    return mk(text)

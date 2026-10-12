@@ -440,6 +440,19 @@ def attach(ref: str, url: Optional[str] = None, base64_data: Optional[str] = Non
 
 
 @tool(RW, write=True)
+def upload_link(ref: str, vault: Optional[str] = None, minutes: int = 60, embed: bool = True) -> str:
+    """Create a short-lived link where the user can upload files (PDFs, photos, documents) straight
+    into this page - no login needed for that link, it only allows adding attachments to this page.
+    Use it when the user wants to attach a file they have (you cannot pass a chat file's bytes):
+    give them the url, ask them to open it on their phone/computer and pick the file, then
+    read(ref, attachments=True) to work with it. minutes: validity (default 60)."""
+    v, p = _vault_for(ref, vault, write=True)
+    link = features.make_upload_link(v.name, v.get_page(p).path, minutes, embed, by=auth.principal.get().actor)
+    auth.audit("upload_link.created", page=link["page"], expires=link["expires"])
+    return _j(link)
+
+
+@tool(RW, write=True)
 def write(ref: str, text: str, vault: Optional[str] = None, expected_sha: Optional[str] = None) -> str:
     """Write a whole page file (YAML frontmatter + markdown), creating it if missing.
     Missing parent folders become folder-pages. Replaces existing content entirely -

@@ -115,6 +115,16 @@ class Forest:
     def shadow(self, vault: str): return self._req("GET", f"/api/{vault}/shadow")
     def restore_shadow(self, vault: str, shadow_path: str): return self._req("POST", f"/api/{vault}/shadow/restore", json={"shadow_path": shadow_path})
 
+    def attach(self, vault: str, page: str, file: Path):
+        with open(file, "rb") as fh:
+            return self._req("POST", f"/api/{vault}/assets", data={"page": page}, files={"file": (file.name, fh)}, timeout=300)
+
+    def attach_url(self, vault: str, page: str, url: str):
+        return self._req("POST", f"/api/{vault}/assets/from-url", json={"page": page, "url": url}, timeout=300)
+
+    def append_raw(self, vault: str, path: str, text: str):
+        return self._req("POST", f"/api/{vault}/page/{self.q(path)}/append", json={"text": text, "timestamp": False})
+
     def download_backup(self, dest: Path) -> Path:
         with self.http.stream("GET", "/api/backup", timeout=300) as r:
             if r.status_code >= 400:

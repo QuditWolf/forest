@@ -133,7 +133,7 @@ async def logout(request: Request):
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
 PUBLIC_PREFIXES = ("/auth/", "/.well-known/", "/oauth/", "/lib/", "/healthz", "/favicon",
-                   "/api/remind/action/", "/manifest.webmanifest", "/sw.js", "/icon.svg")
+                   "/api/remind/action/", "/manifest.webmanifest", "/sw.js", "/icon.svg", "/upload/")
 TOKEN_PREFIXES = ("/api/", "/mcp", "/git/")
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 LEGACY_API = {"tree", "children", "page", "pages", "backlinks", "shadow"}
@@ -972,6 +972,67 @@ def ui_admin():
 def ui_clip():
     """Web clipper / share target page (bookmarklet + PWA share)."""
     return _html("clip.html")
+
+
+UPLOAD_HTML = """<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0"><title>upload to forest</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/lib/theme.css">
+<style>
+body{max-width:520px;margin:0 auto;padding:20px 16px}h1{font-size:15px;margin-bottom:4px}
+.dim{color:var(--dim);font-size:12px}#drop{border:2px dashed var(--border);padding:34px 12px;text-align:center;margin:16px 0;cursor:pointer}
+#drop.over{border-color:var(--fg);background:var(--hl)}#pick{font-size:16px;padding:10px 18px}
+.r{padding:6px 0;border-bottom:1px solid var(--hl);font-size:13px}.err{color:var(--bad)}
+</style></head><body>
+<h1>upload to: __NAME__</h1><div class="dim">__PAGE__ &middot; link expires __EXP__</div>
+<div id="drop"><button id="pick" class="primary">choose files</button><div class="dim" style="margin-top:10px">or drop them here &middot; max __MAX__ MB each</div>
+<input type="file" id="f" multiple style="display:none"></div><div id="out"></div>
+<script>
+if (localStorage.getItem('f-theme') === 'dark') document.body.classList.add('theme-dark');
+const $ = id => document.getElementById(id), esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
+$('pick').onclick = e => { e.preventDefault(); $('f').click(); };
+$('f').onchange = () => send([...$('f').files]);
+const d = $('drop');
+d.ondragover = e => { e.preventDefault(); d.classList.add('over'); };
+d.ondragleave = () => d.classList.remove('over');
+d.ondrop = e => { e.preventDefault(); d.classList.remove('over'); send([...e.dataTransfer.files]); };
+async function send(files) {
+  for (const f of files) {
+    const row = document.createElement('div'); row.className = 'r'; row.textContent = f.name + ' ... uploading';
+    $('out').prepend(row);
+    const fd = new FormData(); fd.append('file', f, f.name);
+    const r = await fetch(location.pathname, { method: 'POST', body: fd });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) row.innerHTML = esc(f.name) + ' &middot; attached' + (j[0] && j[0].kind !== 'image' && j[0].kind !== 'binary' ? ' (text extracted)' : '');
+    else { row.className = 'r err'; row.textContent = f.name + ': ' + (j.detail || r.status); }
+  }
+}
+</script></body></html>"""
+
+
+@app.get("/upload/{token}", include_in_schema=False)
+def upload_page(token: str):
+    try:
+        d = features.check_upload_link(token)
+    except (PermissionError, FileNotFoundError, KeyError) as e:
+        return HTMLResponse(f"<p style='font-family:monospace;padding:20px'>{html.escape(str(e))}</p>", 403)
+    from datetime import datetime as _dt
+    exp = _dt.fromtimestamp(d["e"], features.TZ).strftime("%Y-%m-%d %H:%M")
+    page = (UPLOAD_HTML.replace("__NAME__", html.escape(d["name"])).replace("__PAGE__", html.escape(f"{d['v']}:{d['p']}"))
+            .replace("__EXP__", exp).replace("__MAX__", str(features.MAX_UPLOAD_MB)))
+    return HTMLResponse(page, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
+
+@app.post("/upload/{token}", include_in_schema=False)
+async def upload_post(token: str, request: Request, file: UploadFile = File(...)):
+    data = await file.read(features.MAX_BYTES + 1)
+    tok = store.actor.set("upload-link")
+    try:
+        with _errors():
+            res = features.upload_via_link(token, [(file.filename or "file", data)])
+    finally:
+        store.actor.reset(tok)
+    auth.audit("upload_link.used", page=res[0]["path"], size=len(data), ip=_ip(request))
+    return res
 
 
 @app.get("/manifest.webmanifest", include_in_schema=False)
