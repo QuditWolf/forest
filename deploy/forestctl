@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# forestctl - day-to-day maintenance of the forest container.
+# Install once:  ln -sf /mnt/forest/app/deploy/forestctl /usr/local/bin/forestctl
+set -euo pipefail
+REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+cd "$REPO"
+envval() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/^"//; s/"$//'; }
+
+case "${1:-help}" in
+  update)    exec "$REPO/deploy/update.sh" ;;
+  rollback)  exec "$REPO/deploy/update.sh" --rollback ;;
+  status)
+    docker compose ps
+    echo; echo "code:    $(git log -1 --format='%h %s (%cr)')"
+    git fetch -q origin 2>/dev/null && behind=$(git rev-list --count HEAD..@{u} 2>/dev/null || echo 0) && \
+      [ "$behind" != "0" ] && echo "updates: $behind new commit(s) - run: forestctl update"
+    echo "health:  $(curl -fsS "http://$(envval BIND_IP):$(envval PORT)/healthz" 2>/dev/null || echo DOWN)"
+    vd=$(envval VAULTS_DIR); echo "disk:    $(df -h "$vd" | awk 'NR==2{print $3" used, "$4" free ("$5")"}') on $(df "$vd" | awk 'NR==2{print $6}')"
+    [ -d /var/lib/docker ] && echo "docker:  $(df -h /var/lib/docker | awk 'NR==2{print $4" free ("$5" used)"}') for images"
+    echo "backups: $(ls -1t "$(dirname "$vd")"/backups/forest-*.tar.gz 2>/dev/null | head -1 || echo none)"
+    ;;
+  logs)      docker compose logs -f --tail "${2:-100}" forest ;;
+  restart)   docker compose restart forest ;;
+  backup)
+    vd=$(envval VAULTS_DIR); sd=$(envval STATE_DIR); bd="$(dirname "$vd")/backups"; mkdir -p "$bd"
+    f="$bd/forest-$(date +%Y%m%d-%H%M%S).tar.gz"
+    tar czf "$f" -C "$(dirname "$vd")" "$(basename "$vd")" "$(basename "$sd")"
+    ls -1t "$bd"/forest-*.tar.gz | tail -n +31 | xargs -r rm --      # keep the last 30
+    echo "saved $f"
+    ;;
+  token)     docker compose exec forest forest token create "${2:?name}" --scope "${3:-read}" ;;
+  tokens)    docker compose exec forest forest token list ;;
+  shell)     docker compose exec forest sh ;;
+  *)
+    cat <<'HELP'
+forestctl update        snapshot data, pull, rebuild, restart, health-check (auto rollback on failure)
+forestctl rollback      go back to the previous image
+forestctl status        container, code version, pending updates, health, disk, last backup
+forestctl logs [n]      follow the last n log lines
+forestctl restart       restart the container
+forestctl backup        snapshot vaults + state now (keeps 30)
+forestctl token NAME [read|write]   create an access token
+forestctl tokens        list tokens
+forestctl shell         shell inside the container
+HELP
+    ;;
+esac

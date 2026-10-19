@@ -2,10 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <title>tasks</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<meta name="theme-color" content="#f8f8f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141414" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="stylesheet" href="/lib/theme.css">
 <style>
 body { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
@@ -106,11 +110,23 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
 .ac-item { padding: 2px 6px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ac-item.sel, .ac-item:hover { background: var(--hl); }
 #toast { position: fixed; bottom: 12px; right: 12px; background: var(--fg); color: var(--bg); padding: 4px 10px; font-size: 12px; display: none; }
-@media (max-width: 900px) { .categories { width: 130px; } .detail-panel { width: 290px; } .kbd-hint { display: none; } }
+/* compact: tablets, small windows */
+@media (min-width: 761px) and (max-width: 1100px) {
+  .kbd-hint { display: none; }
+  .categories { width: 150px; }
+  .detail-panel { width: 320px; }
+  .tasks-panel { min-width: 0; }
+  .toolbar button { padding: 4px 8px; }
+  #topbar .bar-btn { padding: 4px 4px; }
+}
+@media (pointer: coarse) {
+  .task-item, .cat-item { padding-top: 9px; padding-bottom: 9px; }
+  button, a, .task-item, .cat-item { touch-action: manipulation; }
+}
 
 /* ── Mobile-first: one screen at a time (categories -> list -> detail) + bottom bar ── */
 .mobile-only { display: none !important; }
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 520px) and (pointer: coarse) {
   .mobile-only { display: revert !important; }
   body { font-size: 15px; }
   #topbar { height: 48px; padding: 0 8px; gap: 8px; }
@@ -151,6 +167,14 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
   #bottomnav span { font-size: 18px; line-height: 1; }
   #bottomnav .on { font-weight: bold; text-decoration: underline; }
   #toast { bottom: calc(70px + env(safe-area-inset-bottom)); }
+  @media (max-height: 520px) {
+    #topbar { height: 40px; }
+    #bottomnav { height: calc(44px + env(safe-area-inset-bottom)); }
+    #bottomnav button, #bottomnav a { flex-direction: row; gap: 6px; font-size: 12px; }
+    .cal-grid { grid-auto-rows: minmax(48px, auto); }
+  }
+  body.kbd-open #bottomnav { display: none !important; }
+  #topbar { padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
 }
 </style>
 </head>
@@ -236,6 +260,7 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
   <button data-nav="add" onclick="mobileAddTask()"><span>+</span>add</button>
 </nav>
 
+<script src="/lib/app.js"></script>
 <script src="/lib/marked.min.js"></script>
 <script src="/lib/purify.min.js"></script>
 <script>
@@ -319,8 +344,12 @@ async function renderCats() {
 }
 
 // mobile: which single screen is visible (cats | list | cal | detail)
-const isMobile = () => matchMedia('(max-width: 760px)').matches;
-function setView(v) {
+const PHONE_Q = '(max-width: 760px), (max-height: 520px) and (pointer: coarse)';
+const isMobile = () => matchMedia(PHONE_Q).matches;
+function setView(v, fromHistory) {
+  // phones: every screen change is a history entry, so the back gesture walks back through screens
+  if (isMobile() && !fromHistory && S.view && v !== S.view) history.pushState({ view: v }, '', location.href);
+  S.view = v;
   document.body.classList.remove('m-cats', 'm-list', 'm-cal', 'm-detail');
   document.body.classList.add('m-' + v);
   document.querySelectorAll('#bottomnav button').forEach(b => b.classList.toggle('on',
@@ -479,7 +508,7 @@ async function selectTask(t, noHash) {
   S.page = await api(vp('page/' + enc(t.path), S.sel.vault));
   S.sel.path = S.page.path;
   const h = '#' + S.sel.vault + '/' + S.page.path;
-  if (!noHash && location.hash !== h) history.replaceState(null, '', h);
+  if (!noHash && location.hash !== h) history.replaceState(history.state, '', h);
   if (!S.cat.startsWith('*calendar')) renderList();
   renderDetail();
 }
@@ -732,7 +761,18 @@ document.addEventListener('keydown', e => {
   else if (e.key === '/') { e.preventDefault(); $('filter').style.display = ''; $('filter').focus(); }
 });
 
+addEventListener('popstate', e => {
+  if (!isMobile() || !e.state || !e.state.view) return;   // only our own screen entries (not #link jumps)
+  S.popping = true;                                   // the hashchange that may follow is ours
+  setTimeout(() => { S.popping = false; }, 50);
+  const v = (e.state && e.state.view) || 'list';
+  if (v !== 'detail') { S.sel = null; S.page = null; }
+  setView(v, true);
+  if (v === 'list' || v === 'cal') loadList();
+});
+
 function openFromHash() {
+  if (S.popping) return;
   if (location.hash === '#add') { history.replaceState(null, '', '/tasks'); mobileAddTask(); return; }
   const h = decodeURIComponent(location.hash.slice(1));
   const i = h.indexOf('/');
@@ -752,7 +792,9 @@ window.addEventListener('focus', () => { if (!S.editingNotes) refresh(true).catc
   await loadPages();
   await renderCats();
   await loadList();
-  setView(S.cat === '*calendar' ? 'cal' : 'list');
+  S.view = null;
+  setView(S.cat === '*calendar' ? 'cal' : 'list', true);
+  history.replaceState({ view: S.view }, '', location.href);
   openFromHash();
 })();
 </script>

@@ -77,6 +77,33 @@ e.g. `cp -r ~/org/tasks /srv/forest/vaults/tasks`. They're turned into git repos
 committed on first start. You can edit the files on the host directly too; changes are
 committed on next start or with the next write.
 
+## Maintain and update
+
+Install the helper once on the server:
+
+```sh
+ln -sf /srv/forest/app/deploy/forestctl /usr/local/bin/forestctl    # adjust to where the repo lives
+```
+
+| command | what it does |
+|---|---|
+| `forestctl update` | snapshot vaults + state, `git pull`, rebuild, restart, health check; rolls back automatically if unhealthy; prunes old images |
+| `forestctl rollback` | back to the image that ran before the last update |
+| `forestctl status` | container state, code version, pending updates on GitHub, health, disk, last backup |
+| `forestctl logs` / `restart` / `shell` | the usual |
+| `forestctl backup` | snapshot now (keeps the last 30) |
+| `forestctl token NAME [read\|write]` / `tokens` | create / list access tokens |
+
+Data only ever lives in `VAULTS_DIR` and `STATE_DIR`; updates never touch it.
+
+## Install on a phone
+
+Open the site in Chrome or Firefox and use "Install app" / "Add to Home screen". It opens full
+screen with its own icon; long-press the icon for shortcuts (tasks, today, new task, capture).
+On Android Chrome it also appears in the Share menu ("forest" -> capture). The layouts adapt to
+phones (incl. landscape), tablets and desktops; the back gesture closes sheets and steps back
+through screens; when the server is unreachable you get an offline notice instead of an error.
+
 ## Connect agents
 
 Create tokens on `/admin` (read-only by default; limit to vaults; optional expiry).

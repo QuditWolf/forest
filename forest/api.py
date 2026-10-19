@@ -133,7 +133,7 @@ async def logout(request: Request):
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
 PUBLIC_PREFIXES = ("/auth/", "/.well-known/", "/oauth/", "/lib/", "/healthz", "/favicon",
-                   "/api/remind/action/", "/manifest.webmanifest", "/sw.js", "/icon.svg", "/upload/")
+                   "/api/remind/action/", "/manifest.webmanifest", "/sw.js", "/icon.svg", "/upload/", "/icons/")
 TOKEN_PREFIXES = ("/api/", "/mcp", "/git/")
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 LEGACY_API = {"tree", "children", "page", "pages", "backlinks", "shadow"}
@@ -1042,7 +1042,8 @@ def manifest():
 
 @app.get("/sw.js", include_in_schema=False)
 def service_worker():
-    return FileResponse(STATIC_DIR / "sw.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+    return FileResponse(STATIC_DIR / "sw.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
 
 
 @app.get("/icon.svg", include_in_schema=False)
@@ -1053,6 +1054,8 @@ def icon():
 
 if (STATIC_DIR / "lib").exists():
     app.mount("/lib", StaticFiles(directory=str(STATIC_DIR / "lib")), name="lib")
+if (STATIC_DIR / "icons").exists():
+    app.mount("/icons", StaticFiles(directory=str(STATIC_DIR / "icons")), name="icons")
 
 
 def main():

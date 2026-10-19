@@ -336,3 +336,103 @@ def test_mobile_tasks(phone, server, web):
     phone.goto(server.base + "/tasks#add"); settle(phone, 1500)
     assert visible("#new-name")
     assert not phone.errors, phone.errors
+
+
+SIZES = {"small-phone": (360, 740), "phone": (412, 915), "landscape-phone": (844, 390),
+         "tablet": (768, 1024), "tablet-landscape": (1024, 768), "laptop": (1280, 720)}
+
+
+@pytest.mark.parametrize("size", list(SIZES))
+def test_layouts_fit_every_screen(page, server, web, size):
+    """No page lays out wider than the screen (which makes phones zoom out) at any common size."""
+    w, h = SIZES[size]
+    touch = size != "laptop"
+    web.post("/api/forest/pages", json={"name": "Fit Check", "content": "# Fit\n" + "word " * 300 +
+                                        "\n\n| a | b | c |\n|---|---|---|\n| " + "x" * 120 + " | y | z |\n"})
+    ctx = page.context.browser.new_context(viewport={"width": w, "height": h}, is_mobile=touch, has_touch=touch)
+    ctx.add_cookies(page.context.cookies())
+    pg = ctx.new_page()
+    for path in ["/#forest/fit-check.md", "/tasks", "/admin", "/clip"]:
+        pg.goto(server.base + path); settle(pg, 1300)
+        dims = pg.evaluate("[innerWidth, document.documentElement.scrollWidth, innerHeight]")
+        assert dims[0] == w and dims[1] <= w + 1, (size, path, dims)
+        if path.startswith("/#"):
+            title = pg.locator("#page-title").bounding_box()
+            assert title and title["width"] >= 150, (size, "page title squeezed", title)
+    phone_layout = pg.evaluate("forestApp.isPhone()")
+    assert phone_layout == (size in ("small-phone", "phone", "landscape-phone")), size
+    ctx.close()
+
+
+def test_mobile_back_gesture_and_keyboard(phone, server, web):
+    web.post("/api/forest/pages", json={"name": "Back A", "content": "a"})
+    web.post("/api/forest/pages", json={"name": "Back B", "content": "b"})
+    phone.goto(server.base + "/#forest/back-a.md"); settle(phone, 1500)
+    # drawer: back closes it and stays on the page
+    phone.tap("#bottomnav button:has-text('pages')"); settle(phone, 300)
+    phone.go_back(); settle(phone, 500)
+    assert not phone.evaluate("document.body.classList.contains('drawer-open')")
+    assert phone.url.endswith("#forest/back-a.md")
+    # search sheet: back closes it
+    phone.tap("#bottomnav button:has-text('search')"); settle(phone, 300)
+    assert phone.is_visible("#search-overlay.open")
+    phone.go_back(); settle(phone, 500)
+    assert not phone.is_visible("#search-overlay.open") and phone.url.endswith("#forest/back-a.md")
+    # navigating from the drawer, then back returns to the previous page
+    phone.tap("#bottomnav button:has-text('pages')"); settle(phone, 300)
+    phone.tap("#tree .tree-row:has-text('Back B')"); settle(phone, 1200)
+    assert phone.url.endswith("#forest/back-b.md")
+    phone.go_back(); settle(phone, 1200)
+    assert phone.url.endswith("#forest/back-a.md") and phone.input_value("#page-title") == "Back A"
+    # closing a sheet with its own button doesn't leave a dead history entry
+    phone.tap("#bottomnav button:has-text('new')"); settle(phone, 300)
+    phone.tap("#add-overlay .modal-x"); settle(phone, 500)
+    phone.go_back(); settle(phone, 1200)
+    assert not phone.url.endswith("#forest/back-a.md")      # went to the previous page, not a phantom state
+    # keyboard: bottom bar hides while typing
+    phone.goto(server.base + "/#forest/back-a.md"); settle(phone, 1500)
+    phone.tap("#edit-btn"); settle(phone, 300)
+    phone.focus("#edit-textarea"); settle(phone, 200)
+    assert not phone.is_visible("#bottomnav")
+    phone.evaluate("document.activeElement.blur()"); settle(phone, 200)
+    assert phone.is_visible("#bottomnav")
+    phone.keyboard.press("Escape"); settle(phone, 600)
+    # tasks: back walks detail -> list -> lists
+    web.post("/api/tasks/pages", json={"name": "Back task", "state": "todo"})
+    phone.goto(server.base + "/tasks"); settle(phone, 1500)
+    phone.tap("#bottomnav button:has-text('lists')"); settle(phone, 300)
+    phone.tap(".cat-item[data-cat='']"); settle(phone, 800)
+    phone.tap(".task-item:has-text('Back task')"); settle(phone, 800)
+    assert phone.is_visible(".detail-panel")
+    phone.go_back(); settle(phone, 600)
+    assert phone.is_visible("#list-panel") and not phone.is_visible(".detail-panel")
+    phone.go_back(); settle(phone, 600)
+    assert phone.is_visible(".categories")
+    assert not phone.errors, phone.errors
+
+
+def test_pwa_install_and_offline(page, server):
+    import httpx as hx
+    m = hx.get(server.base + "/manifest.webmanifest").json()          # public, no login
+    assert m["display"] == "standalone" and m["start_url"] == "/" and m["id"] == "/"
+    sizes = {(i["sizes"], i.get("purpose")) for i in m["icons"]}
+    assert ("192x192", "any") in sizes and ("512x512", "any") in sizes and ("512x512", "maskable") in sizes
+    for i in m["icons"]:
+        r = hx.get(server.base + i["src"])
+        assert r.status_code == 200 and r.headers["content-type"].startswith("image/")
+    assert hx.get(server.base + "/icons/icon-180.png").status_code == 200
+    ctx = page.context.browser.new_context(viewport={"width": 412, "height": 915}, is_mobile=True, has_touch=True)
+    ctx.add_cookies(page.context.cookies())
+    pg = ctx.new_page()
+    pg.goto(server.base + "/"); settle(pg, 1500)
+    assert pg.evaluate("navigator.serviceWorker.ready.then(r => !!r.active)")
+    pg.reload(); settle(pg, 1500)                                     # now controlled by the worker
+    assert pg.evaluate("!!navigator.serviceWorker.controller")
+    ctx.set_offline(True)
+    pg.reload(); settle(pg, 1200)
+    assert pg.is_visible("#topbar")                                   # cached shell, not a browser error page
+    assert pg.is_visible("#offline-banner")                           # data calls fail -> banner
+    pg.goto(server.base + "/admin"); settle(pg, 800)                  # never cached -> friendly offline page
+    assert "offline" in pg.inner_text("body").lower()
+    ctx.set_offline(False)
+    ctx.close()

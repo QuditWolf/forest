@@ -9,7 +9,7 @@
 set -euo pipefail
 # Run from a temp copy: `git pull` below may replace this very file while bash is reading it.
 if [ -z "${FOREST_UPDATE_REPO:-}" ]; then
-  export FOREST_UPDATE_REPO="$(cd "$(dirname "$0")/.." && pwd)"
+  export FOREST_UPDATE_REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"   # works via symlinks too
   tmp=$(mktemp /tmp/forest-update.XXXXXX.sh); cp "$0" "$tmp"
   exec bash "$tmp" "$@"
 fi
