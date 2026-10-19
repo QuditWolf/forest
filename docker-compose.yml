@@ -6,7 +6,10 @@
 # Nothing is stored inside the container or in a Docker volume.
 services:
   forest:
-    build: .
+    build:
+      context: .
+      labels:
+        forest.commit: ${FOREST_COMMIT:-unknown}   # set by deploy/update.sh; lets it skip no-op rebuilds
     image: forest:latest
     container_name: forest
     restart: unless-stopped

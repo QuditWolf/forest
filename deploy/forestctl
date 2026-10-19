@@ -7,7 +7,7 @@ cd "$REPO"
 envval() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/^"//; s/"$//'; }
 
 case "${1:-help}" in
-  update)    exec "$REPO/deploy/update.sh" ;;
+  update)    exec "$REPO/deploy/update.sh" "${@:2}" ;;
   rollback)  exec "$REPO/deploy/update.sh" --rollback ;;
   status)
     docker compose ps
@@ -33,7 +33,8 @@ case "${1:-help}" in
   shell)     docker compose exec forest sh ;;
   *)
     cat <<'HELP'
-forestctl update        snapshot data, pull, rebuild, restart, health-check (auto rollback on failure)
+forestctl update        if there is new code: snapshot data, pull, rebuild, restart, health-check
+                        (auto rollback on failure); does nothing when already at latest. --force rebuilds
 forestctl rollback      go back to the previous image
 forestctl status        container, code version, pending updates, health, disk, last backup
 forestctl logs [n]      follow the last n log lines

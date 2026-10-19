@@ -87,7 +87,7 @@ ln -sf /srv/forest/app/deploy/forestctl /usr/local/bin/forestctl    # adjust to 
 
 | command | what it does |
 |---|---|
-| `forestctl update` | snapshot vaults + state, `git pull`, rebuild, restart, health check; rolls back automatically if unhealthy; prunes old images |
+| `forestctl update` | only when there is new code (or the running image is older than the code): snapshot vaults + state, `git pull`, rebuild, restart, health check; rolls back automatically if unhealthy; prunes old images. Otherwise prints "already at latest". `--force` rebuilds anyway |
 | `forestctl rollback` | back to the image that ran before the last update |
 | `forestctl status` | container state, code version, pending updates on GitHub, health, disk, last backup |
 | `forestctl logs` / `restart` / `shell` | the usual |

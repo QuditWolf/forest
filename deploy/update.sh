@@ -2,6 +2,7 @@
 # Update forest in production without touching your data.
 #
 #   deploy/update.sh              snapshot data, pull latest code, rebuild, restart, health check
+#   deploy/update.sh --force      rebuild even if already at the latest commit
 #   deploy/update.sh --rollback   go back to the image that ran before the last update
 #
 # Data (VAULTS_DIR, STATE_DIR) lives on the host and is never modified by this script;
@@ -38,6 +39,23 @@ if [ "${1:-}" = "--rollback" ]; then
   exit 0
 fi
 
+# ── anything to do? compare local code, GitHub, and the commit the running image was built from ──
+git fetch -q || echo "warning: git fetch failed, using local code"
+LOCAL=$(git rev-parse HEAD)
+REMOTE=$(git rev-parse '@{u}' 2>/dev/null || echo "$LOCAL")
+DEPLOYED=$(docker image inspect forest:latest --format '{{ index .Config.Labels "forest.commit" }}' 2>/dev/null || true)
+if [ "${1:-}" != "--force" ] && [ "$LOCAL" = "$REMOTE" ] && [ "$DEPLOYED" = "$LOCAL" ]; then
+  if curl -fsS "$HEALTH" >/dev/null 2>&1; then
+    echo "already at latest ($(git log -1 --format='%h %s')) - nothing to do (--force to rebuild anyway)"
+    exit 0
+  fi
+  echo "already at latest, but the container is not healthy - restarting it (no rebuild)"
+  docker compose up -d --no-build
+  healthy && { echo "healthy again"; exit 0; } || { echo "still not healthy - check: docker compose logs forest"; exit 1; }
+fi
+[ "$LOCAL" != "$REMOTE" ] && echo "new code: $(git log -1 --format='%h %s' "$REMOTE")"
+[ "$LOCAL" = "$REMOTE" ] && [ "$DEPLOYED" != "$LOCAL" ] && echo "code is newer than the running image - rebuilding"
+
 echo "== 1/5 snapshot data -> $BACKUP_DIR"
 mkdir -p "$BACKUP_DIR"
 stamp=$(date +%Y%m%d-%H%M%S)
@@ -51,6 +69,7 @@ echo "== 3/5 pull code"
 git pull --ff-only
 
 echo "== 4/5 rebuild + restart"
+export FOREST_COMMIT=$(git rev-parse HEAD)   # stamped into the image label, checked by the next update
 docker compose build
 docker compose up -d
 
