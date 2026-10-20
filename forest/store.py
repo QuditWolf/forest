@@ -1088,12 +1088,17 @@ def agenda(
     tag: Optional[str] = None,
     under: Optional[str] = None,
     by_priority: Optional[dict] = None,
+    due_on: Optional[str] = None,
 ) -> List[dict]:
     """Pages that carry task metadata, filtered and sorted by due date then priority.
     state: all | undone | done | <specific state>.
     by_priority: per-priority due windows, e.g. {"high": "all", "medium": "2w", "low": "none"}."""
     today = date.today()
     cutoff = parse_due_window(due_within) if due_within else None
+    on = None
+    if due_on:
+        on = {"today": today, "tomorrow": today + timedelta(days=1)}.get(due_on.strip().lower()) \
+            or date.fromisoformat(due_on.strip())
     out = []
     vaults = task_vaults(vaults)
     for v in [] if vaults == "__none__" else _selected(vaults):
@@ -1117,6 +1122,8 @@ def agenda(
             if overdue and not (p.due and p.due < today and p.state != "done"):
                 continue
             if cutoff and not (p.due and p.due <= cutoff):
+                continue
+            if on and p.due != on:
                 continue
             if by_priority:
                 window = (by_priority.get(p.priority or "medium") or "all").strip().lower()

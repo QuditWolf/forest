@@ -231,6 +231,7 @@ At the end of a work session: `append(<today's daily note>, "Agent: did X, see [
 ## Ready-made queries
 
 - Overdue: `agenda(overdue=True)`
+- Tomorrow: `agenda(due_on="tomorrow")`; a given day: `agenda(due_on="2026-10-24")`
 - This week: `agenda(due_within="7d")`
 - Blocked or waiting: `agenda(state="blocked")`, `agenda(state="waiting")`
 - By project tag: `agenda(tag="alpha-launch")`; by category: `agenda(under="work")`

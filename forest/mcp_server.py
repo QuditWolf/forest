@@ -394,13 +394,13 @@ def tags(tag: Optional[str] = None, vault: Optional[str] = None) -> str:
 @tool(RO)
 def agenda(vault: Optional[str] = None, state: str = "undone", priority: Optional[str] = None,
            due_within: Optional[str] = None, overdue: bool = False, tag: Optional[str] = None,
-           under: Optional[str] = None) -> str:
+           under: Optional[str] = None, due_on: Optional[str] = None) -> str:
     """Tasks (tasks vault), sorted by due date then priority.
     state: undone (default) | all | done | todo | in-progress | blocked | waiting.
     due_within: '3d', '2w', '1m'. overdue: only past-due. tag: e.g. a project tag.
-    under: category (e.g. "work")."""
+    under: category (e.g. "work"). due_on: 'today' | 'tomorrow' | YYYY-MM-DD (due exactly that day)."""
     return _j(store.agenda(_allowed_vaults(vault), state=state, priority=priority,
-                           due_within=due_within, overdue=overdue, tag=tag, under=under))
+                           due_within=due_within, overdue=overdue, tag=tag, under=under, due_on=due_on))
 
 
 # ── writes ────────────────────────────────────────────────────────────────────

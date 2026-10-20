@@ -272,6 +272,21 @@ def test_tasks_ui(page, server, web):
     target_day = __import__("datetime").date.today().replace(day=12).isoformat()
     src.drag_to(page.locator(f".cal-day[data-day='{target_day}']")); settle(page, 1200)
     assert web.get("/api/tasks/page/cal-item.md").json()["due"] == target_day
+    # tomorrow pane: only tasks due exactly tomorrow
+    import datetime as _dt
+    d0 = _dt.date.today()
+    web.post("/api/tasks/pages", json={"name": "Due tomorrow", "state": "todo", "due": (d0 + _dt.timedelta(days=1)).isoformat()})
+    web.post("/api/tasks/pages", json={"name": "Due in two days", "state": "todo", "due": (d0 + _dt.timedelta(days=2)).isoformat()})
+    web.post("/api/tasks/pages", json={"name": "Due today item", "state": "todo", "due": d0.isoformat()})
+    assert [t["name"] for t in web.get("/api/agenda", params={"due_on": "tomorrow"}).json()] == ["Due tomorrow"]
+    assert [t["name"] for t in web.get("/api/agenda", params={"due_on": d0.isoformat()}).json()] == ["Due today item"]
+    assert web.get("/api/agenda", params={"due_on": "someday"}).status_code == 400
+    page.goto(server.base + "/tasks"); settle(page, 1500)
+    assert page.inner_text(".cat-item[data-cat='*agenda:tomorrow'] .cat-count") == "1"
+    page.click(".cat-item[data-cat='*agenda:tomorrow']"); settle(page, 800)
+    assert page.inner_text("#tasks-title") == "due tomorrow"
+    items = page.inner_text("#list-panel")
+    assert "Due tomorrow" in items and "Due in two days" not in items and "Due today item" not in items
     assert not page.errors, page.errors
 
 

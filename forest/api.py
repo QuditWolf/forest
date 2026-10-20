@@ -453,12 +453,14 @@ def tagged(tag: str, vault: Optional[str] = None):
 def agenda(vault: Optional[str] = None, state: str = "undone", priority: Optional[str] = None,
            due_within: Optional[str] = None, overdue: bool = False, tag: Optional[str] = None,
            under: Optional[str] = None, high: Optional[str] = None, medium: Optional[str] = None,
-           low: Optional[str] = None):
-    """Task pages across vaults. high/medium/low = per-priority due windows (e.g. 'all', '2w', 'none')."""
+           low: Optional[str] = None, due_on: Optional[str] = None):
+    """Task pages across vaults. high/medium/low = per-priority due windows (e.g. 'all', '2w', 'none').
+    due_on: today | tomorrow | YYYY-MM-DD (exactly that day)."""
     by_pri = {"high": high or "all", "medium": medium or "all", "low": low or "all"} \
         if any((high, medium, low)) else None
-    return store.agenda(_allowed(vault), state=state, priority=priority, due_within=due_within,
-                        overdue=overdue, tag=tag, under=under, by_priority=by_pri)
+    with _errors():
+        return store.agenda(_allowed(vault), state=state, priority=priority, due_within=due_within,
+                            overdue=overdue, tag=tag, under=under, by_priority=by_pri, due_on=due_on)
 
 
 @app.get("/api/changes")

@@ -256,6 +256,7 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
 <div id="toast"></div>
 <nav id="bottomnav" class="mobile-only">
   <button data-nav="today" onclick="navGo('*agenda:today')"><span>&#9711;</span>today</button>
+  <button data-nav="tomorrow" onclick="navGo('*agenda:tomorrow')"><span>&#9654;</span>tmrw</button>
   <button data-nav="week" onclick="navGo('*agenda:week')"><span>&#9638;</span>7 days</button>
   <button data-nav="cats" onclick="setView('cats')"><span>&#9776;</span>lists</button>
   <button data-nav="cal" onclick="navGo('*calendar')"><span>&#9783;</span>calendar</button>
@@ -326,14 +327,15 @@ async function renderCats() {
     if (p.state && p.state !== 'done') cats[c].n++;
     if (p.due && p.due < today() && p.state !== 'done') cats[c].over++;
   }
-  let over = [], soon = [];
-  try { [over, soon] = await Promise.all([api('/api/agenda?overdue=true'), api('/api/agenda?due_within=0d')]); } catch (e) {}
+  let over = [], soon = [], tom = [];
+  try { [over, soon, tom] = await Promise.all([api('/api/agenda?overdue=true'), api('/api/agenda?due_within=0d'), api('/api/agenda?due_on=tomorrow')]); } catch (e) {}
   const item = (key, label, count, warn) =>
     `<div class="cat-item ${S.cat === key ? 'active' : ''}" data-cat="${esc(key)}"><span>${esc(label)}</span>` +
     `<span class="cat-count ${warn ? 'warn' : ''}">${count ?? ''}</span></div>`;
   let html = '<div class="cat-sep">agenda</div>';
   html += item('*agenda:overdue', 'overdue', over.length || '', over.length > 0);
   html += item('*agenda:today', 'today', soon.length || '');
+  html += item('*agenda:tomorrow', 'tomorrow', tom.length || '');
   html += item('*agenda:week', 'next 7 days', '');
   html += item('*agenda:doing', 'in progress', '');
   html += item('*calendar', 'calendar', '');
@@ -356,7 +358,7 @@ function setView(v, fromHistory) {
   document.body.classList.add('m-' + v);
   document.querySelectorAll('#bottomnav button').forEach(b => b.classList.toggle('on',
     (v === 'cats' && b.dataset.nav === 'cats') || (v === 'cal' && b.dataset.nav === 'cal') ||
-    (v === 'list' && ((S.cat === '*agenda:today' && b.dataset.nav === 'today') || (S.cat === '*agenda:week' && b.dataset.nav === 'week')))));
+    (v === 'list' && ((S.cat === '*agenda:today' && b.dataset.nav === 'today') || (S.cat === '*agenda:week' && b.dataset.nav === 'week') || (S.cat === '*agenda:tomorrow' && b.dataset.nav === 'tomorrow')))));
 }
 async function navGo(key) { await selectCat(key); }
 async function mobileAddTask() {
@@ -391,9 +393,9 @@ async function loadList() {
   $('add-btn').style.display = c.startsWith('*agenda') ? 'none' : '';
   if (c.startsWith('*agenda:')) {
     const kind = c.split(':')[1];
-    const q = { overdue: 'overdue=true', today: 'due_within=0d', week: 'due_within=7d', doing: 'state=in-progress' }[kind];
+    const q = { overdue: 'overdue=true', today: 'due_within=0d', tomorrow: 'due_on=tomorrow', week: 'due_within=7d', doing: 'state=in-progress' }[kind];
     list = await api('/api/agenda?' + q);
-    $('tasks-title').textContent = { overdue: 'overdue', today: 'due today (and overdue)', week: 'next 7 days', doing: 'in progress' }[kind];
+    $('tasks-title').textContent = { overdue: 'overdue', today: 'due today (and overdue)', tomorrow: 'due tomorrow', week: 'next 7 days', doing: 'in progress' }[kind];
     $('cat-title').textContent = 'agenda';
   } else {
     list = S.pages.filter(p => !isCategoryIndex(p) && !p.path.startsWith('_') && !p.path.startsWith('journal/')
