@@ -133,7 +133,7 @@ async def logout(request: Request):
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
 PUBLIC_PREFIXES = ("/auth/", "/.well-known/", "/oauth/", "/lib/", "/healthz", "/favicon",
-                   "/api/remind/action/", "/manifest.webmanifest", "/tasks.webmanifest", "/sw.js", "/icon.svg", "/tasks-icon.svg", "/upload/", "/icons/")
+                   "/api/remind/action/", "/manifest.webmanifest", "/tasks.webmanifest", "/sw.js", "/icon.svg", "/tasks-icon.svg", "/upload/", "/icons/", "/privacy")
 TOKEN_PREFIXES = ("/api/", "/mcp", "/git/")
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 LEGACY_API = {"tree", "children", "page", "pages", "backlinks", "shadow"}
@@ -1126,6 +1126,43 @@ async def upload_post(token: str, request: Request, file: UploadFile = File(...)
 @app.get("/manifest.webmanifest", include_in_schema=False)
 def manifest():
     return FileResponse(STATIC_DIR / "manifest.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/privacy", include_in_schema=False, response_class=HTMLResponse)
+def privacy():
+    """Public privacy policy (needed for the Google OAuth consent screen)."""
+    from . import config as c
+    host = html.escape(c.PUBLIC_URL.split("://", 1)[-1] or "this server")
+    contact = (f'<a href="mailto:{html.escape(c.CONTACT_EMAIL)}">{html.escape(c.CONTACT_EMAIL)}</a>'
+               if c.CONTACT_EMAIL else "the operator of this server")
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>forest - privacy policy</title>
+<link rel="stylesheet" href="/lib/theme.css"><style>body{{max-width:680px;margin:0 auto;padding:24px 16px;line-height:1.55}}
+h1{{font-size:16px;margin-bottom:12px}}h2{{font-size:13px;margin:18px 0 4px}}p,li{{margin:4px 0}}ul{{padding-left:18px}}</style></head><body>
+<h1>forest: privacy policy</h1>
+<p>forest ({host}) is a personal, self-hosted knowledge base and task planner. It is run by and for a single
+person (its operator). It is not a public service and does not accept sign-ups.</p>
+<h2>What data it holds</h2>
+<p>The operator's own notes and tasks, stored as files on the operator's server, plus access logs
+(time, IP address, action) for security.</p>
+<h2>Google user data</h2>
+<ul>
+<li>When the operator connects their Google account, forest uses the Google Calendar API only to create
+a calendar named "forest" in that account and to create, update and delete events in it that mirror the
+operator's own tasks (title, date, time, reminders), and to read changes made to those events.</li>
+<li>forest does not read, store or modify any other calendar, contacts, email or Google data.</li>
+<li>The Google access token is stored on the operator's server only and is used for nothing else.</li>
+<li>No Google user data is sold, shared with or transferred to anyone, used for advertising, or used to
+train AI models. forest's use of information received from Google APIs adheres to the
+<a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>,
+including the Limited Use requirements.</li>
+</ul>
+<h2>Removing access and data</h2>
+<p>Access can be revoked at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>
+or by disconnecting in forest; the stored token is then deleted. The "forest" calendar can be deleted in Google Calendar.</p>
+<h2>Contact</h2>
+<p>{contact}</p>
+</body></html>"""
 
 
 @app.get("/tasks.webmanifest", include_in_schema=False)

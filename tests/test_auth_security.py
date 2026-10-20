@@ -161,3 +161,9 @@ def test_bad_timezone_gives_clear_error(tmp_path):
     r = subprocess.run([sys.executable, "-m", "uvicorn", "forest.api:app", "--port", "1"], env=env, cwd=ROOT,
                        capture_output=True, text=True, timeout=60)
     assert r.returncode != 0 and "Asia/Kolkata" in r.stderr and "Traceback" not in r.stderr.split("FOREST_TZ")[0][-300:]
+
+
+def test_privacy_page_is_public(server):
+    r = httpx.get(server.base + "/privacy", follow_redirects=False)      # no login: Google must be able to read it
+    assert r.status_code == 200 and "privacy policy" in r.text and "Limited Use" in r.text
+    assert "<script" not in r.text

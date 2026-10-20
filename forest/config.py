@@ -98,6 +98,7 @@ _tv = _get("forest", "task_vaults", "FOREST_TASK_VAULTS", "tasks")
 TASK_VAULTS = _tv if isinstance(_tv, list) else [v.strip() for v in str(_tv).split(",") if v.strip()]
 
 MAX_UPLOAD_MB = int(_get("forest", "max_upload_mb", "FOREST_MAX_UPLOAD_MB", 25))
+CONTACT_EMAIL = str(_get("server", "contact_email", "FOREST_CONTACT_EMAIL", ""))   # shown on /privacy
 
 # ntfy push reminders (optional). Leave URL empty to disable.
 NTFY_URL = str(_get("ntfy", "url", "FOREST_NTFY_URL", "")).rstrip("/")            # e.g. https://ntfy.sh
