@@ -20,7 +20,7 @@ from starlette.middleware.sessions import SessionMiddleware
 import asyncio
 import base64
 
-from . import auth, backup, features, githttp, oauth, reminders, store, webpush
+from . import auth, backup, features, gcal, githttp, oauth, reminders, store, webpush
 from .auth import Principal
 from .config import (COOKIE_SECURE, PUBLIC_URL, SERVER_HOST, SERVER_PORT, STATE_DIR,
                      VALID_PRIORITIES, VALID_STATES, session_secret)
@@ -44,9 +44,11 @@ async def lifespan(app: FastAPI):
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     features.ensure_templates()
     task = asyncio.create_task(reminders.loop())
+    gtask = asyncio.create_task(gcal.loop())
     async with mcp.session_manager.run():
         yield
     task.cancel()
+    gtask.cancel()
     auth.tokens().flush()
 
 
@@ -645,6 +647,46 @@ def admin_set_notify(body: dict):
         st = reminders.set_settings(body)
     auth.audit("notify.settings", **st)
     return st
+
+
+# ── Google Calendar sync. Web login only. ────────────────────────────────────
+
+@app.get("/api/google")
+def google_status():
+    _admin()
+    return gcal.status()
+
+
+@app.get("/api/google/connect", include_in_schema=False)
+def google_connect():
+    _admin()
+    with _errors():
+        return RedirectResponse(gcal.auth_url(), 302)
+
+
+@app.get("/api/google/callback", include_in_schema=False)
+async def google_callback(code: str = "", state: str = "", error: str = ""):
+    _admin()
+    if error or not code:
+        return RedirectResponse("/admin?google=" + urlencode({"e": error or "cancelled"})[2:] + "#google", 302)
+    try:
+        await asyncio.to_thread(gcal.finish, code, state)
+    except Exception as e:
+        return RedirectResponse("/admin?" + urlencode({"google": str(e)[:200]}) + "#google", 302)
+    return RedirectResponse("/admin?google=connected#google", 302)
+
+
+@app.post("/api/google/sync")
+async def google_sync():
+    _admin()
+    return await asyncio.to_thread(gcal.sync)
+
+
+@app.delete("/api/google")
+def google_disconnect():
+    _admin()
+    gcal.disconnect()
+    return {"ok": True}
 
 
 @app.get("/api/admin/mode")

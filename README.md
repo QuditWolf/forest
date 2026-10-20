@@ -116,6 +116,22 @@ task's "remind before" (`remind: [10m, 1h]`; date-only tasks count back from 09:
 button. They respect silent mode and do-not-disturb. Needs the HTTPS address; on iPhone, install
 to the home screen first (iOS 16.4+). ntfy (`FOREST_NTFY_*`) is an optional second channel.
 
+## Google Calendar
+
+Tasks with a due date appear in a "forest" calendar in your Google account, with their time,
+duration and "remind before" alerts, so your phone's calendar alarms them. Date-only tasks are
+all-day events (alerts: the calendar's default all-day notifications, set in Google Calendar).
+Done tasks stay as grey history. Edits made in Google (move, rename, alerts, description) come
+back to the task; deleting an event removes the task's date; a new event in the forest calendar
+becomes a task. forest only gets access to calendars it creates.
+
+Setup: in Google Cloud create a project, enable the Google Calendar API, set up the OAuth consent
+screen (External, publish to production; skip verification, you'll see an "unverified app" screen
+once), create an OAuth client "Web application" with redirect URI
+`https://<your domain>/api/google/callback`, put `FOREST_GOOGLE_CLIENT_ID` and
+`FOREST_GOOGLE_CLIENT_SECRET` in `.env`, set `FOREST_CONTACT_EMAIL` (shown on `/privacy`, the
+privacy policy URL for the consent screen), deploy, then "connect Google" on `/admin`.
+
 ## Connect agents
 
 Create tokens on `/admin` (read-only by default; limit to vaults; optional expiry).

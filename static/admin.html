@@ -51,6 +51,9 @@ pre { padding: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-a
   <a href="/auth/logout">logout</a>
 </header>
 
+<h2 id="google">google calendar</h2>
+<section class="box small" id="gcal"></section>
+
 <h2 id="notifications">notifications</h2>
 <section class="box small" id="notify"></section>
 
@@ -184,6 +187,39 @@ async function renderMode() {
     $('mode-help').textContent = MODE_HELP[r.value];
   }));
 }
+// ── Google Calendar sync ──
+async function renderGoogle() {
+  const g = await api('/api/google');
+  const msg = new URLSearchParams(location.search).get('google');
+  let html = '';
+  if (msg) html += `<div class="${msg === 'connected' ? 'ok' : 'bad'}" style="margin-bottom:6px">${msg === 'connected' ? 'connected' : esc(msg)}</div>`;
+  if (!g.configured) {
+    html += `<div>not set up: create an OAuth client in Google Cloud (web application, redirect URI
+      <code>${esc(location.origin)}/api/google/callback</code>), then set <code>FOREST_GOOGLE_CLIENT_ID</code> and
+      <code>FOREST_GOOGLE_CLIENT_SECRET</code> in .env and restart.</div>`;
+  } else if (!g.connected) {
+    html += `<div class="row"><a href="/api/google/connect"><button class="primary">connect Google</button></a>
+      <span class="dim">forest gets its own "forest" calendar and can touch nothing else in your account</span></div>`;
+  } else {
+    html += `<div>${g.error ? `<span class="bad">${esc(g.error)}</span>` : '<span class="ok">syncing</span>'}
+      to the "forest" calendar of <b>${esc(g.email || 'your account')}</b> · ${g.events} events · last sync ${ago(g.last_sync)}</div>
+      <div class="row" style="margin-top:6px">
+        ${g.error ? '<a href="/api/google/connect"><button class="primary">reconnect</button></a>' : ''}
+        <button onclick="googleSync()">sync now</button>
+        <button class="danger" onclick="googleDisconnect()">disconnect</button></div>
+      <div class="dim" style="margin-top:4px">tasks with a due date appear there (with their time, duration and "remind before" alerts;
+        date-only tasks use the calendar's default all-day alerts, set in Google Calendar settings for "forest").
+        Done tasks stay as grey history. Moving, renaming or editing an event in Google updates the task; deleting it removes the task's date.
+        Syncs every minute.</div>`;
+  }
+  $('gcal').innerHTML = html;
+}
+async function googleSync() { const r = await api('/api/google/sync', 'POST'); if (r.error) alert(r.error); renderGoogle(); }
+async function googleDisconnect() {
+  if (!confirm('Stop syncing? The forest calendar stays in Google (delete it there if you want).')) return;
+  await api('/api/google', 'DELETE'); renderGoogle();
+}
+
 // ── notifications: Web Push to this device + digest times ──
 function deviceName() {
   const ua = navigator.userAgent;
@@ -208,6 +244,7 @@ async function enablePush() {
     if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
     await api('/api/push/devices', 'POST', { subscription: sub.toJSON(), name: deviceName() });
     renderNotify();
+  renderGoogle();
   } catch (e) { if (e.message !== '401') alert('Could not turn on notifications: ' + e.message); }
 }
 async function removeDevice(id, mine) {

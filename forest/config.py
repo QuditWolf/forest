@@ -100,6 +100,11 @@ TASK_VAULTS = _tv if isinstance(_tv, list) else [v.strip() for v in str(_tv).spl
 MAX_UPLOAD_MB = int(_get("forest", "max_upload_mb", "FOREST_MAX_UPLOAD_MB", 25))
 CONTACT_EMAIL = str(_get("server", "contact_email", "FOREST_CONTACT_EMAIL", ""))   # shown on /privacy
 
+# Google Calendar sync (optional): OAuth client from Google Cloud ("Web application",
+# redirect URI = PUBLIC_URL + /api/google/callback).
+GOOGLE_CLIENT_ID = str(_get("google", "client_id", "FOREST_GOOGLE_CLIENT_ID", ""))
+GOOGLE_CLIENT_SECRET = str(_get("google", "client_secret", "FOREST_GOOGLE_CLIENT_SECRET", ""))
+
 # ntfy push reminders (optional). Leave URL empty to disable.
 NTFY_URL = str(_get("ntfy", "url", "FOREST_NTFY_URL", "")).rstrip("/")            # e.g. https://ntfy.sh
 NTFY_TOPIC = str(_get("ntfy", "topic", "FOREST_NTFY_TOPIC", ""))

@@ -209,7 +209,8 @@ re-read and redo the edit on the fresh text. Never retry blindly with `write`.
 `create(name="Call with Asha", vault="tasks", state="todo", due="<tomorrow>", at="15:00", duration="30m",
 remind=["15m"])`, or `update(ref, due=..., at=..., remind=[...])` for an existing task. Use the user's
 local time. Date-only tasks are all-day. `agenda(due_on="tomorrow")` lists them in time order.
-Meetings in the user's Google Calendar are not in forest; use a calendar connector for those.
+Tasks with a due date also show up in the user's Google Calendar ("forest" calendar) with these alerts.
+Meetings in the user's other Google calendars are not in forest; use a calendar connector for those.
 
 **Link a note and a task**
 In the note: `append("forest:meetings/2026-10-01", "Follow-up: [[tasks:work/write-report]]")`.
