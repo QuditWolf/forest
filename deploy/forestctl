@@ -20,7 +20,7 @@ case "${1:-help}" in
     echo "backups: $(ls -1t "$(dirname "$vd")"/backups/forest-*.tar.gz 2>/dev/null | head -1 || echo none)"
     ;;
   logs)      docker compose logs -f --tail "${2:-100}" forest ;;
-  restart)   docker compose restart forest ;;
+  restart)   docker compose up -d --no-build --force-recreate forest ;;   # recreate so .env changes apply
   backup)
     vd=$(envval VAULTS_DIR); sd=$(envval STATE_DIR); bd="$(dirname "$vd")/backups"; mkdir -p "$bd"
     f="$bd/forest-$(date +%Y%m%d-%H%M%S).tar.gz"
