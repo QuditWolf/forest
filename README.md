@@ -27,7 +27,7 @@ Interfaces:
   `[[` links, "referenced in" (which notes point at a task).
 - **Admin** (`/admin`) - read/write tokens, OAuth clients, audit log, backup/restore,
   clipper, reminders.
-- **MCP** (`/mcp`) - 34 tools for AI assistants and agents (Streamable HTTP). Agent guide: `forest/skill/SKILL.md`.
+- **MCP** (`/mcp`) - 38 tools for AI assistants and agents (Streamable HTTP). Agent guide: `forest/skill/SKILL.md`.
 - **REST API** (`/api`, docs at `/api/docs`) and **git sync** (`/git/<vault>.git`).
 - **CLI + TUI** clients that talk to the server over HTTPS.
 
@@ -98,8 +98,9 @@ Data only ever lives in `VAULTS_DIR` and `STATE_DIR`; updates never touch it.
 
 ## Install on a phone
 
-Open the site in Chrome or Firefox and use "Install app" / "Add to Home screen". It opens full
-screen with its own icon; long-press the icon for shortcuts (tasks, today, new task, capture).
+Open the site in Chrome or Firefox and use "Install app" / "Add to Home screen". Forest and
+tasks are separate apps: install from `/` for forest and from `/tasks` for tasks (own name and
+checkbox icon). Each opens full screen; long-press the icon for shortcuts (today, capture / new task).
 On Android Chrome it also appears in the Share menu ("forest" -> capture). The layouts adapt to
 phones (incl. landscape), tablets and desktops; the back gesture closes sheets and steps back
 through screens; when the server is unreachable you get an offline notice instead of an error.
@@ -112,7 +113,24 @@ Create tokens on `/admin` (read-only by default; limit to vaults; optional expir
 |---|---|
 | Claude.ai / Claude desktop | Settings > Connectors > add custom connector `https://tools.example.com/mcp`. You approve on your server (choose read/write + vaults). |
 | Other MCP clients | HTTP transport, URL `https://tools.example.com/mcp`, header `Authorization: Bearer fst_...` |
+| Proactive use | see below |
 | Skill / guide | `GET /api/skill` or MCP prompt `skill` (source: `forest/skill/SKILL.md`) |
+
+### Proactive mode
+
+How much assistants use forest on their own. Default for new conversations on `/admin`; switch
+per conversation by typing a keyword in your message:
+
+| keyword | assistant |
+|---|---|
+| `forest: off` | uses forest only when asked |
+| `forest: recall` (default) | looks up relevant notes on its own (`recall` tool), saves only when asked |
+| `forest: auto` | also saves decisions, facts and todos on its own (`remember` tool) and says `saved to forest: [[...]]` |
+| `forest: default auto` | changes the saved default |
+
+Assistants learn this from the server instructions sent when they connect (new chats pick up a
+changed default) and from the skill. For Claude.ai, adding one line to your profile preferences
+("Use the forest connector proactively, following its mode") makes it more reliable.
 
 ## Clients on your laptop
 

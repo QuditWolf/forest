@@ -21,6 +21,7 @@ EXPECTED_TOOLS = {
     "daily_note", "templates", "create", "capture", "write", "edit", "append", "update", "move", "promote",
     "delete", "trash", "restore", "history", "changes", "version", "diff", "restore_version",
     "attachments", "read_attachment", "attach", "delete_attachment", "upload_link",
+    "recall", "remember", "mode",
 }
 
 
@@ -169,6 +170,63 @@ def test_mcp_transport_security(server, wtok):
 def _pkce():
     v = secrets.token_urlsafe(40)
     return v, base64.urlsafe_b64encode(hashlib.sha256(v.encode()).digest()).rstrip(b"=").decode()
+
+
+def mcp_instructions(server, token):
+    async def go():
+        async with httpx2.AsyncClient(headers={"Authorization": f"Bearer {token}"}, timeout=60) as hc:
+            async with streamable_http_client(server.base + "/mcp", http_client=hc) as st:
+                async with ClientSession(st[0], st[1]) as s:
+                    return (await s.initialize()).instructions
+    return asyncio.run(go())
+
+
+def test_mcp_proactive_mode_recall_remember(server, web, wtok, rtok):
+    web.post("/api/forest/pages", json={"name": "Kelper homeserver",
+                                        "content": "Arch box on the VPN. Docker data lives on /mnt/forest.\n"})
+    # default mode is recall, announced in the connect-time instructions with the chat keywords
+    assert web.get("/api/admin/mode").json()["mode"] == "recall"
+    ins = mcp_instructions(server, rtok)
+    assert "Saved default: recall" in ins and "forest: auto" in ins and "forest: default" in ins
+
+    out = run_mcp(server, wtok, [
+        ("recall", {"topic": "how is docker set up on my kelper server?"}),
+        ("recall", {"topic": "zanzibar xylophone"}),
+        ("remember", {"text": "Decided: backups go to the NAS weekly. See [[forest:kelper-homeserver]]",
+                      "title": "Backup decision", "tags": ["infra"]}),
+        ("remember", {"text": "Root fs is 89% full, Docker images live there.", "about": "forest:kelper-homeserver"}),
+        ("mode", {"set": "auto"}),
+        ("mode", {"set": "sometimes"}),
+    ])
+    r = [x[1] for x in out["results"]]
+    hits = j(r[0])
+    assert hits["mode"] == "recall" and hits["hits"][0]["ref"] == "forest:kelper-homeserver.md"
+    assert hits["hits"][0]["link"] == "[[forest:kelper-homeserver]]" and "Docker" in hits["hits"][0]["snippet"]
+    assert j(r[1])["hits"] == []
+    saved = j(r[2])
+    assert saved["saved"].startswith("forest:inbox/") and saved["link"].startswith("[[forest:inbox/")
+    page = web.get("/api/forest/page/" + saved["saved"].split(":", 1)[1]).json()
+    assert page["name"] == "Backup decision" and page["tags"] == ["infra"]
+    assert page["extra"]["via"].startswith("token:")
+    assert j(r[3])["saved"] == "forest:kelper-homeserver.md"
+    assert "89% full" in web.get("/api/forest/page/kelper-homeserver.md").json()["content"]
+    assert j(r[4])["mode"] == "auto"
+    assert "error" in r[5] and "off, recall, auto" in r[5]
+    # the saved default reaches new connections
+    assert "Saved default: auto" in mcp_instructions(server, rtok)
+
+    # read tokens can recall but not save or change the default
+    out = run_mcp(server, rtok, [("remember", {"text": "x"}), ("mode", {"set": "off"}), ("mode", {})])
+    r = [x[1] for x in out["results"]]
+    assert "read-only" in r[0] and "read-only" in r[1] and j(r[2])["mode"] == "auto"
+
+    # admin page toggle
+    assert web.put("/api/admin/mode", json={"mode": "off"}).json()["mode"] == "off"
+    assert web.put("/api/admin/mode", json={"mode": "nope"}).status_code == 400
+    assert "Saved default: off" in mcp_instructions(server, rtok)
+    import httpx as _h
+    assert _h.get(server.base + "/api/admin/mode", headers={"Authorization": f"Bearer {wtok}"}).status_code == 403
+    web.put("/api/admin/mode", json={"mode": "recall"})
 
 
 def test_oauth_connector_flow(server, web):

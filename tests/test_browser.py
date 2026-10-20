@@ -421,10 +421,21 @@ def test_pwa_install_and_offline(page, server):
         r = hx.get(server.base + i["src"])
         assert r.status_code == 200 and r.headers["content-type"].startswith("image/")
     assert hx.get(server.base + "/icons/icon-180.png").status_code == 200
+    # tasks is its own installable app: separate id/scope/icons, linked from the tasks page
+    t = hx.get(server.base + "/tasks.webmanifest").json()
+    assert t["id"] == t["scope"] == t["start_url"] == "/tasks" and t["short_name"] == "tasks"
+    for i in t["icons"]:
+        r = hx.get(server.base + i["src"])
+        assert r.status_code == 200 and r.headers["content-type"].startswith("image/")
     ctx = page.context.browser.new_context(viewport={"width": 412, "height": 915}, is_mobile=True, has_touch=True)
     ctx.add_cookies(page.context.cookies())
     pg = ctx.new_page()
+    pg.goto(server.base + "/tasks"); settle(pg, 800)
+    if "/auth/login" in pg.url:                                       # when run on its own
+        pg.fill("#password", PASSWORD); pg.click("button[type=submit]"); settle(pg, 1200)
+    assert pg.get_attribute("link[rel=manifest]", "href") == "/tasks.webmanifest"
     pg.goto(server.base + "/"); settle(pg, 1500)
+    assert pg.get_attribute("link[rel=manifest]", "href") == "/manifest.webmanifest"
     assert pg.evaluate("navigator.serviceWorker.ready.then(r => !!r.active)")
     pg.reload(); settle(pg, 1500)                                     # now controlled by the worker
     assert pg.evaluate("!!navigator.serviceWorker.controller")

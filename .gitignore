@@ -60,3 +60,4 @@ forest.toml
 adding_claude_skill.md
 .archive/
 .playwright-mcp/
+!static/icons/*.png

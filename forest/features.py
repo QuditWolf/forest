@@ -875,3 +875,95 @@ def calendar_ics(vaults: Optional[str] = None) -> str:
                   "END:VEVENT"]
     lines.append("END:VCALENDAR")
     return "\r\n".join(lines) + "\r\n"
+
+
+# ── Assistant mode (how proactively agents use forest) + recall / remember ───
+
+MODES = ("off", "recall", "auto")
+_STOP = set("the and for with that this from have what when where which about into your you are was were "
+            "will would should could can how why who its it's not but all any our out get got just like "
+            "want need some them they then than there their also been does did done make made use using".split())
+
+
+def _mode_file() -> Path:
+    from .config import STATE_DIR
+    return STATE_DIR / "assistant.json"
+
+
+def get_mode() -> str:
+    import json
+    try:
+        m = json.loads(_mode_file().read_text()).get("mode")
+    except Exception:
+        m = None
+    return m if m in MODES else "recall"
+
+
+def set_mode(mode: str) -> str:
+    import json
+    mode = (mode or "").strip().lower()
+    if mode not in MODES:
+        raise ValueError(f"mode must be one of {', '.join(MODES)}")
+    f = _mode_file()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps({"mode": mode, "changed": now().isoformat(timespec="minutes")}))
+    return mode
+
+
+def recall(topic: str, vaults: Optional[str] = None, limit: int = 6) -> List[dict]:
+    """Best pages for a loosely phrased topic: any word may match, more matching words and
+    name/tag matches rank higher. Cheap enough to call at the start of a conversation."""
+    terms = [t for t in dict.fromkeys(re.findall(r"[\w][\w-]{2,}", (topic or "").lower())) if t not in _STOP]
+    if not terms:
+        return []
+    need = 1 if len(terms) <= 2 else 2
+    hits = []
+    for v in store._selected(vaults):
+        for md, rel in v.iter_searchable():
+            try:
+                text = md.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            low = text.lower()
+            found = [t for t in terms if t in low]
+            if len(found) < need:
+                continue
+            head = low[:300]   # frontmatter + title area: name and tags live here
+            score = len(found) * 2 + sum(2 for t in found if t in head) + sum(low.count(t) > 3 for t in found)
+            hits.append((score, v, md, rel, found, text))
+    hits.sort(key=lambda h: -h[0])
+    out = []
+    for score, v, md, rel, found, text in hits[:limit]:
+        low = text.lower()
+        body = low.find("\n---", 3) + 4 if low.startswith("---") else 0
+        idx = low.find(found[0], body)
+        idx = idx if idx >= 0 else body
+        snippet = re.sub(r"\s+", " ", text[max(body, idx - 120): idx + 240]).strip()
+        d = {"ref": f"{v.name}:{rel}", "snippet": snippet, "matched": found}
+        if md.suffix == ".md":
+            try:
+                p = v._parse_page(md)
+                d.update(name=p.name, link=f"[[{ref_for(v.name, p.path)}]]", tags=p.tags or None,
+                         state=p.state, due=str(p.due) if p.due else None)
+            except Exception:
+                pass
+        else:
+            d["name"] = "attachment: " + Path(rel).name
+        out.append({k: x for k, x in d.items() if x is not None})
+    return out
+
+
+def remember(text: str, title: Optional[str] = None, about: Optional[Tuple[store.Vault, str]] = None,
+             tags: Optional[List[str]] = None, via: str = "chat") -> Page:
+    """Save knowledge from a conversation: appended to an existing page (`about`), or a new inbox page."""
+    if not (text or "").strip():
+        raise ValueError("nothing to remember")
+    if about:
+        v, path = about
+        return v.append_to_page(path, text.strip(), timestamp=True)
+    v, folder = _loc(INBOX)
+    parent = _ensure_folder(v, folder, folder.rsplit("/", 1)[-1].replace("-", " ").title() or "Inbox") \
+        if folder else None
+    title = (title or text.strip().splitlines()[0])[:100].strip().lstrip("#").strip()
+    extra = {"captured": now().isoformat(timespec="minutes"), "via": via}
+    return v.create_page(parent, title, content=text.strip() + "\n", tags=tags, extra=extra)

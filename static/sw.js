@@ -1,6 +1,6 @@
 // forest service worker: makes the app installable, starts fast, and says "offline" instead of a browser error.
 // Never caches API data: only the static libraries and the (data-free) page shells.
-const VERSION = 'forest-v2';
+const VERSION = 'forest-v3';
 const SHELLS = ['/', '/tasks', '/admin', '/clip'];
 const SKIP = ['/api/', '/mcp', '/git/', '/auth/', '/oauth/', '/upload/', '/.well-known/', '/healthz', '/sw.js'];
 
@@ -22,7 +22,7 @@ self.addEventListener('fetch', e => {
 
   // static assets: serve from cache instantly, refresh in the background
   if (url.pathname.startsWith('/lib/') || url.pathname.startsWith('/icons/') ||
-      url.pathname === '/icon.svg' || url.pathname === '/manifest.webmanifest') {
+      url.pathname.endsWith('.svg') || url.pathname.endsWith('.webmanifest')) {
     e.respondWith((async () => {
       const cache = await caches.open(VERSION);
       const hit = await cache.match(req);

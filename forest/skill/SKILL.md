@@ -1,6 +1,6 @@
 ---
 name: forest
-description: Use the user's Forest knowledge base and task planner (MCP server "forest"). Use whenever the user mentions notes, pages, the journal/daily note, tasks, todos, agenda, what to do today, reviews, inbox, capturing something, or asks to remember/look up something they wrote.
+description: The user's second brain - Forest knowledge base and task planner (MCP server "forest"). Use whenever a conversation touches the user's own projects, work, setup, people, plans, decisions, ideas or past notes (to recall context and, in auto mode, save what is worth keeping), and whenever they mention notes, pages, journal, tasks, todos, agenda, today, reviews, inbox, capture, "remember this" or "what did I write about". Also handles the chat keywords `forest: off|recall|auto`.
 ---
 
 # Forest: agent guide
@@ -8,6 +8,38 @@ description: Use the user's Forest knowledge base and task planner (MCP server "
 Forest is the user's personal knowledge base and task planner. Everything is plain Markdown
 with YAML frontmatter, stored in git-versioned **vaults** on the user's server and reached
 through the `forest` MCP tools (or the REST API at `/api`).
+
+## Proactive mode (read this first)
+
+The user controls how much you use forest on your own. The saved default is in the server
+instructions and in every `recall` result (`mode`); the user overrides it per conversation by
+writing a keyword in any message (latest wins):
+
+| keyword | you do |
+|---|---|
+| `forest: off` | nothing unless asked |
+| `forest: recall` | look things up on your own, save only when asked |
+| `forest: auto` | look up and also save what is worth keeping, on your own |
+| `forest: default <mode>` | `mode(set="<mode>")` changes the default for new conversations; use it now too |
+
+Explicit requests ("save this", "what do I have on X") always work, in every mode.
+
+**Recall (recall and auto).** When the conversation touches the user's own world (a project, their
+server, a person, a plan, a past decision, something they are learning), call `recall(topic)` once
+for that topic before answering, then `read` the one or two hits that matter. Use what you find
+naturally and cite it as `[[links]]`; if nothing is relevant, say nothing about forest. Do not
+recall for generic questions (syntax, trivia) or on every message.
+
+**Save (auto only, or when asked).** Worth saving: decisions and why, facts about the user's
+projects/setup/people, conclusions of research or debugging (the fix, not the journey), plans,
+preferences, and things they need to do (those become tasks). Not worth saving: small talk, general
+knowledge they can look up, half-finished thinking, anything they call private or temporary.
+- Save when a point is settled, usually once or twice per conversation, not every turn.
+- `recall` first; if a page fits, `remember(text, about="<that page>")` extends it. Otherwise
+  `remember(text, title=...)` files a new note in the inbox for the user to triage.
+- To-dos go to `create(vault="tasks", state="todo", ...)` with a link back to the note.
+- Write the note so it stands alone in a year: what, why, key details, `[[links]]` to related pages.
+- End your answer with one line: `saved to forest: [[...]]` (one line per item, nothing more).
 
 ## Mental model
 
@@ -56,6 +88,9 @@ through the `forest` MCP tools (or the REST API at `/api`).
 
 | Tool | Use it for | Notes |
 |---|---|---|
+| `recall` | "what do I already have on X" | loose ranked lookup, any words; snippet + link + tags + task state; cheap, use it proactively |
+| `remember` | save knowledge from the chat | `about=` appends to an existing page (preferred), else a new inbox page; returns the link |
+| `mode` | saved proactive default | `set=` only when the user asks to change the default |
 | `vaults` | orientation | vaults, counts, valid states/priorities, your access (read/write) |
 | `tree` | structure of a vault or subtree | `depth` to limit |
 | `ls` | children of one folder with metadata | cheaper than tree |
@@ -88,7 +123,36 @@ Choosing between neighbours:
 - append vs edit vs update vs write: append adds, edit changes a specific passage, update
   changes metadata, write replaces everything (avoid on existing pages).
 
+## Shaping the knowledge base
+
+Forest is worth more the more it is connected. When you write, aim for these page kinds (reuse the
+folders that exist; check `tree(depth=1)` once):
+- **Project hub** (`projects/<name>`): goal, status line, key decisions, links to notes, a
+  ```tasks block for its tag. Everything about the project links here.
+- **Topic / evergreen note**: one idea or subject per page, written to be re-read ("How backups
+  work on kelper", not "notes 12 Oct"). Prefer extending these over creating new ones.
+- **Decision**: a `## Decisions` section on the project page (date, decision, why, alternatives)
+  rather than a page per decision, unless it is big.
+- **Person** (`people/<name>`): who they are, context, what you discussed, links to meetings.
+- **Journal** (daily note): what happened today, short, with links out. Logs, not knowledge:
+  move anything lasting into a topic or project page and link it.
+- **Inbox**: unsorted captures. Triage regularly into the pages above.
+
+Good notes: a clear `name`, 1-3 tags from `tags()`, a first line that says what the page is, short
+sections, links to at least one related page (and a link back from that page when it matters).
+
 ## Recipes
+
+**Start of a conversation about the user's work** (recall/auto)
+`recall("<topic in a few words>")` → `read` the best hit (`section=` for long pages) → answer
+using it. If the project has a hub page, mention open tasks from its ```tasks tag via `agenda(tag=)` when relevant.
+
+**End of a useful conversation** (auto, or when the user says "save this")
+Summarise what was settled into 1-3 notes: `recall` to find homes → `remember(..., about=)` or a
+new note → tasks for follow-ups → one `saved to forest:` line each.
+
+**"What do I know about X / what did I decide about Y"**
+`recall` → `search` for exact phrases if needed → `read` → answer with `[[links]]` and dates.
 
 **Capture, then triage the inbox**
 1. `capture(text, url=..., tags=[...])` (or `create` in the right place if you already know it).
@@ -150,7 +214,7 @@ At the end of a work session: `append(<today's daily note>, "Agent: did X, see [
 
 ## Rules
 
-1. Search before creating; extend existing pages instead of making near-duplicates.
+1. Recall/search before creating; extend existing pages instead of making near-duplicates.
 2. Tasks live only in `tasks`, flat (root or one category). Never put state/due on forest
    pages and never nest tasks; for bigger work, tag the tasks and use a forest page with a
    ```tasks block and/or `[[tasks:...]]` links.
@@ -161,6 +225,8 @@ At the end of a work session: `append(<today's daily note>, "Agent: did X, see [
 7. Tag consistently: reuse existing tags (`tags()`) before inventing new ones; lowercase, `area/sub` for hierarchy.
 8. Use `expected_sha` for edits on pages the user may be editing.
 9. Keep answers grounded: cite pages as `[[vault:path]]` and give the `url` when the user wants to open them.
+10. Follow the mode: never save unasked in `off`/`recall`; never go silent about something you saved in `auto`.
+11. Never store secrets (passwords, tokens, keys) in forest, even when asked to remember setup details; note where they live instead.
 
 ## Ready-made queries
 

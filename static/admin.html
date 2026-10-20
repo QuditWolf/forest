@@ -51,6 +51,9 @@ pre { padding: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-a
   <a href="/auth/logout">logout</a>
 </header>
 
+<h2>assistant mode</h2>
+<section class="box small" id="mode"></section>
+
 <h2>connect</h2>
 <section class="box small" id="connect"></section>
 
@@ -161,6 +164,23 @@ async function renderExtras() {
       <button onclick="ntfyTest('weekly')" ${st.ntfy ? '' : 'disabled'}>send weekly overview now</button>
       <span class="dim">per task: frontmatter <code>remind: 2026-10-01T09:00</code> (done / snooze buttons in the push)</span></div>`;
 }
+const MODE_HELP = {
+  off: 'agents use forest only when you ask',
+  recall: 'agents look up relevant notes on their own; save only when asked',
+  auto: 'agents look up and also save decisions, facts and todos on their own (they tell you what they saved)',
+};
+async function renderMode() {
+  const m = (await api('/api/admin/mode')).mode;
+  $('mode').innerHTML = `
+    <div class="row">${Object.keys(MODE_HELP).map(k => `<label style="margin-right:14px"><input type="radio" name="mode" value="${k}" ${k === m ? 'checked' : ''}> ${k}</label>`).join('')}</div>
+    <div class="dim" style="margin-top:4px" id="mode-help">${esc(MODE_HELP[m])}</div>
+    <div style="margin-top:6px">default for new conversations. In a chat, write <code>forest: off</code>, <code>forest: recall</code> or <code>forest: auto</code>
+      to switch that conversation only, <code>forest: default auto</code> to change this setting.</div>`;
+  document.querySelectorAll('[name=mode]').forEach(r => r.addEventListener('change', async () => {
+    await api('/api/admin/mode', 'PUT', { mode: r.value });
+    $('mode-help').textContent = MODE_HELP[r.value];
+  }));
+}
 async function ntfyTest(kind) { await api('/api/admin/ntfy-test?kind=' + kind, 'POST'); alert('sent'); }
 
 async function loadTokens() {
@@ -241,6 +261,7 @@ $('a-filter').addEventListener('change', loadAudit);
   $('t-vaults').size = Math.min(3, me.vaults.length);
   renderConnect(me.vaults);
   renderExtras();
+  renderMode();
   loadTokens(); loadClients(); loadAudit();
 })();
 </script>

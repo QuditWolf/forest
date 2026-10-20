@@ -133,7 +133,7 @@ async def logout(request: Request):
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
 PUBLIC_PREFIXES = ("/auth/", "/.well-known/", "/oauth/", "/lib/", "/healthz", "/favicon",
-                   "/api/remind/action/", "/manifest.webmanifest", "/sw.js", "/icon.svg", "/upload/", "/icons/")
+                   "/api/remind/action/", "/manifest.webmanifest", "/tasks.webmanifest", "/sw.js", "/icon.svg", "/tasks-icon.svg", "/upload/", "/icons/")
 TOKEN_PREFIXES = ("/api/", "/mcp", "/git/")
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 LEGACY_API = {"tree", "children", "page", "pages", "backlinks", "shadow"}
@@ -579,6 +579,23 @@ def admin_settings():
             "templates": c.TEMPLATES, "max_upload_mb": c.MAX_UPLOAD_MB, "ntfy": reminders.enabled(),
             "ntfy_url": c.NTFY_URL, "ntfy_topic": (c.NTFY_TOPIC[:3] + "...") if c.NTFY_TOPIC else "",
             "digest_time": c.DIGEST_TIME, "weekly_time": c.WEEKLY_TIME}
+
+
+@app.get("/api/admin/mode")
+def admin_mode():
+    _admin()
+    return {"mode": features.get_mode(), "modes": list(features.MODES)}
+
+
+@app.put("/api/admin/mode")
+def admin_set_mode(body: dict):
+    _admin()
+    with _errors():
+        m = features.set_mode(str(body.get("mode", "")))
+    from .mcp_server import refresh_instructions
+    refresh_instructions()
+    auth.audit("mode.set", mode=m)
+    return {"mode": m}
 
 
 @app.get("/api/admin/tokens")
@@ -1038,6 +1055,16 @@ async def upload_post(token: str, request: Request, file: UploadFile = File(...)
 @app.get("/manifest.webmanifest", include_in_schema=False)
 def manifest():
     return FileResponse(STATIC_DIR / "manifest.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/tasks.webmanifest", include_in_schema=False)
+def tasks_manifest():
+    return FileResponse(STATIC_DIR / "tasks.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/tasks-icon.svg", include_in_schema=False)
+def tasks_icon():
+    return FileResponse(STATIC_DIR / "tasks-icon.svg", media_type="image/svg+xml")
 
 
 @app.get("/sw.js", include_in_schema=False)

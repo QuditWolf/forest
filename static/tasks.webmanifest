@@ -1,0 +1,22 @@
+{
+  "id": "/tasks",
+  "name": "forest tasks",
+  "short_name": "tasks",
+  "description": "Task planner: categories, agenda, calendar",
+  "start_url": "/tasks",
+  "scope": "/tasks",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#f8f8f8",
+  "categories": ["productivity"],
+  "icons": [
+    { "src": "/icons/tasks-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/tasks-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/tasks-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/tasks-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "new task", "short_name": "add task", "url": "/tasks#add", "icons": [{ "src": "/icons/tasks-192.png", "sizes": "192x192" }] }
+  ]
+}

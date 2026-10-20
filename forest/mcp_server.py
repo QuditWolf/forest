@@ -21,12 +21,12 @@ from mcp.types import ToolAnnotations
 from . import auth, features, store
 from .config import VALID_PRIORITIES, VALID_STATES
 
-INSTRUCTIONS = """\
-Forest is the user's personal knowledge base + task planner: plain Markdown pages with YAML
-frontmatter in git-versioned vaults:
-- "forest" = knowledge (notes, projects, journal, inbox, templates). Pages here are NOT tasks:
-  no state/priority/due. Organise work with ordinary pages: lists/tables of [[tasks:...]] links
-  (they render with live task status) or a ```tasks block (e.g. `tag: alpha`) that lists tasks live.
+BASE_INSTRUCTIONS = """\
+Forest is the user's personal knowledge base + task planner ("second brain"): plain Markdown pages
+with YAML frontmatter in git-versioned vaults:
+- "forest" = knowledge (notes, projects, people, decisions, journal, inbox, templates). Pages here are
+  NOT tasks: no state/priority/due. Organise work with ordinary pages: lists/tables of [[tasks:...]]
+  links (they render with live task status) or a ```tasks block (e.g. `tag: alpha`) that lists tasks live.
 - "tasks" = the task planner. Flat: tasks live at the root or in a category (top-level folder).
   No subtasks - bigger work gets a forest page that links or lists its tasks.
 
@@ -37,10 +37,10 @@ Conventions (follow them):
 - Cross-link both ways with [[wikilinks]]: a task description links notes ([[forest:projects/alpha]]),
   notes link tasks ([[tasks:work/report]]). [[page|alias]], [[page#Heading]]. Never markdown links for internal refs.
 - Tags: frontmatter `tags: [a, b]` and inline #tag / #area/sub. Shared across vaults: tag a task #alpha
-  and it appears on any forest page with a ```tasks tag: alpha``` block.
+  and it appears on any forest page with a ```tasks tag: alpha``` block. Reuse existing tags.
 - Task fields (tasks vault only): state (todo|in-progress|blocked|waiting|done), priority
   (high|medium|low), due (YYYY-MM-DD).
-- Search (search/grep/find) before creating, to avoid duplicates.
+- Search (recall/search/grep/find) before creating, to avoid duplicates; extend existing pages.
 - For additive notes use append; for surgical changes use edit (exact string replace);
   write replaces the whole file. Pass expected_sha (from read) to avoid clobbering concurrent edits.
 - Deletes are soft (.shadow, restorable) and every change is a git commit (see history/version/restore_version).
@@ -49,7 +49,47 @@ Conventions (follow them):
 - For the full guide call the `skill` prompt or fetch /api/skill.
 """
 
-mcp = MCPServer("forest", instructions=INSTRUCTIONS)
+MODE_TEXT = {
+    "off": "OFF: use forest only when the user explicitly asks for it.",
+    "recall": ("RECALL: proactively look things up, never save unasked. When the conversation touches the "
+               "user's own projects, work, people, plans, decisions, past notes or tasks, call recall(topic) "
+               "early (once per topic, not every message) and use what it returns, citing pages as [[links]]. "
+               "Say nothing if it finds nothing relevant. Save only when asked."),
+    "auto": ("AUTO: recall as above, and also save on your own what is worth keeping: decisions and their "
+             "reasons, facts about the user's projects/people/setup, conclusions of research or debugging, "
+             "plans, and things the user says they need to do (as tasks). Not worth saving: small talk, "
+             "generic knowledge, drafts, anything the user marks private. Use remember(text, about=<page>) "
+             "to extend the right existing page (recall first), otherwise remember(text, title=...) which "
+             "files it in the inbox; tasks via create(vault='tasks', state='todo'). Save once a point is "
+             "settled, not every turn, written as a self-contained note with [[links]]. After saving, add "
+             "one short line to your answer: `saved to forest: [[...]]`."),
+}
+
+
+def mode_instructions(mode: str) -> str:
+    return (f"""
+Proactive use (mode). Saved default: {mode}. The user can switch per conversation by writing
+`forest: off`, `forest: recall` or `forest: auto` in a message: from then on use that mode in this
+conversation (the latest keyword wins; it does not change the saved default). `forest: default <mode>`
+means: call mode(set="<mode>") to change the saved default for new conversations, and use it now.
+Explicit requests always work, whatever the mode.
+Current behaviour unless switched: {MODE_TEXT[mode]}
+Modes: {' | '.join(MODE_TEXT.values())}
+""")
+
+
+def instructions() -> str:
+    return BASE_INSTRUCTIONS + mode_instructions(features.get_mode())
+
+
+mcp = MCPServer("forest", instructions=BASE_INSTRUCTIONS)
+
+
+
+def refresh_instructions() -> None:
+    """Instructions are sent at connect time; rebuild them when the saved mode changes."""
+    mcp._lowlevel_server.instructions = instructions()
+
 
 RO = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
 RW = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
@@ -237,6 +277,49 @@ def read(ref: str, vault: Optional[str] = None, raw: bool = False, section: Opti
             more = f"\n[... {len(text) - len(chunk)} more chars: read_attachment with offset]" if len(text) > len(chunk) else ""
             body += f"\n\n<attachment path={v.name}:{a['path']} kind={a['kind']}>\n{chunk}{more}\n</attachment>"
     return body
+
+
+@tool(RO)
+def recall(topic: str, vault: Optional[str] = None, limit: int = 6) -> str:
+    """Look up what the user already has on a topic: best matching pages with a snippet, link, tags and
+    task state. Loose matching (any words, ranked), cheap. Call it early when a conversation touches the
+    user's projects, people, plans, decisions or past work (unless the mode is off), then read() the
+    hits that matter. Returns the current mode too."""
+    hits = features.recall(topic, _allowed_vaults(vault), limit=max(1, min(limit, 20)))
+    return _j({"mode": features.get_mode(), "hits": hits} if hits else
+              {"mode": features.get_mode(), "hits": [], "note": "nothing in forest on this"})
+
+
+@tool(RW, write=True)
+def remember(text: str, title: Optional[str] = None, about: Optional[str] = None,
+             tags: Optional[List[str]] = None) -> str:
+    """Save knowledge from the conversation. about=<existing page ref> appends it there (timestamped,
+    preferred when recall found the right page); otherwise a new page in the inbox (title= optional).
+    Write a self-contained note in markdown with [[links]]; one call per topic."""
+    target = None
+    if about:
+        v, p = _vault_for(about, None, write=True)
+        target = (v, p)
+    else:
+        _check_vault(store.split_ref(features.INBOX)[0], write=True)
+    page = features.remember(text, title, target, tags, via=auth.principal.get().actor)
+    return _j({"saved": f"{page.vault}:{page.path}", "link": f"[[{features.ref_for(page.vault, page.path)}]]",
+               "url": features.page_url(page.vault, page.path)})
+
+
+@tool(RW)
+def mode(set: Optional[str] = None) -> str:
+    """Saved default for proactive use: off | recall | auto. Call with set= only when the user asks to
+    change the default (e.g. they wrote `forest: default auto`). A plain `forest: <mode>` in a message
+    switches only the current conversation and needs no call."""
+    if set is not None:
+        if not auth.principal.get().can_write:
+            return "error: this token is read-only"
+        features.set_mode(set)
+        refresh_instructions()
+        auth.audit("mode.set", mode=set)
+    m = features.get_mode()
+    return _j({"mode": m, "means": MODE_TEXT[m]})
 
 
 @tool(RO)
@@ -609,6 +692,9 @@ def weekly_review() -> str:
 def skill() -> str:
     """The full Forest usage guide for agents (mental model, tools, recipes, rules)."""
     return (Path(__file__).parent / "skill" / "SKILL.md").read_text(encoding="utf-8")
+
+
+refresh_instructions()
 
 
 def run_stdio():

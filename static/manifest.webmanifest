@@ -22,9 +22,7 @@
     "params": { "title": "title", "text": "text", "url": "url" }
   },
   "shortcuts": [
-    { "name": "tasks", "short_name": "tasks", "url": "/tasks", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
     { "name": "today", "short_name": "today", "url": "/#today", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
-    { "name": "new task", "short_name": "add task", "url": "/tasks#add", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
     { "name": "capture", "short_name": "capture", "url": "/clip", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }
