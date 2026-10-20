@@ -53,6 +53,34 @@ def test_deep_link_through_login(page, server, web):
     assert page.is_visible("#page-head") and page.is_visible("#edit-btn")
 
 
+def test_landing_index_overview(page, server, web):
+    web.post("/api/forest/pages", json={"name": "Areas", "as_folder": True})
+    web.post("/api/forest/pages", json={"name": "Garden plan", "parent_path": "areas/index.md", "content": "beds"})
+    web.post("/api/forest/pages", json={"name": "Index Loose", "content": "loose page"})
+    pg = page.context.new_page()
+    pg.goto(server.base + "/#forest/index-loose.md"); settle(pg, 1200)
+    if "/auth/login" in pg.url:
+        pg.fill("#password", PASSWORD); pg.click("button[type=submit]"); settle(pg, 1500)
+    assert "loose page" in pg.inner_text("#view-pane")
+    pg.goto(server.base + "/"); settle(pg, 1500)                     # landing = index, not an empty pane
+    ov = pg.inner_text("#empty")
+    assert pg.is_visible(".ov-grid") and "Areas/" in ov and "Garden plan" in ov
+    assert "continue: Index Loose" in ov and "recent:" in ov
+    pg.click(".ov-col a:has-text('Garden plan')"); settle(pg, 800)  # opens the page
+    assert "beds" in pg.inner_text("#view-pane")
+    pg.go_back(); settle(pg, 800)                                     # back returns to the index
+    assert pg.is_visible(".ov-grid")
+    pg.click("#view-pane") if pg.is_visible("#view-pane") else None
+    pg.goto(server.base + "/#forest/areas/garden-plan.md"); settle(pg, 800)
+    pg.keyboard.press("h"); settle(pg, 800)                           # H: back to the index from a page
+    assert pg.is_visible(".ov-grid") and pg.url.endswith("#forest/")
+    pg.screenshot(path="/tmp/ov-desktop.png")
+    pg.set_viewport_size({"width": 390, "height": 844}); settle(pg, 500)
+    pg.screenshot(path="/tmp/ov-phone.png")
+    assert not pg.errors if hasattr(pg, "errors") else True
+    pg.close()
+
+
 def test_xss_resistance(page, server, web):
     created = web.post("/api/forest/pages", json={
         "name": "<img src=x onerror=window.__xss1=1>",

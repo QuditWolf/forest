@@ -21,7 +21,7 @@ Interfaces:
 
 - **Phones:** every web UI has a mobile layout (drawer + bottom bar for forest, one screen at a
   time for tasks); install it as an app from the browser menu.
-- **Web UI** (`/`) - tree, markdown + mermaid, `[[links]]` across vaults, tags, history,
+- **Web UI** (`/`) - opens on an index of the vault (folders as columns, recent edits, continue where you left off, `H`), tree, markdown + mermaid, `[[links]]` across vaults, tags, history,
   local graph, outline, journal, templates, attachments, autocomplete.
 - **Tasks UI** (`/tasks`) - categories, agenda, calendar with drag to reschedule, notes with
   `[[` links, "referenced in" (which notes point at a task).
