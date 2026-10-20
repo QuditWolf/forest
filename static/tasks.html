@@ -79,7 +79,8 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
 .notes-area ul, .notes-area ol { padding-left: 18px; }
 .notes-area code, .notes-area pre { background: var(--hl); }
 .notes-area pre { padding: 6px; overflow-x: auto; }
-.notes-area a.wikilink { text-decoration: none; border-bottom: 1px dotted var(--border); }
+.notes-area a.wikilink { color: var(--accent); text-decoration: none; }
+.notes-area a.wikilink:hover { text-decoration: underline; }
 .notes-area img { max-width: 100%; }
 .empty-note { color: var(--dim); font-style: italic; }
 .sub-row { padding: 1px 0; cursor: pointer; }
@@ -101,7 +102,7 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
 .cal-day.drop { background: var(--hl); }
 .cal-num { font-size: 11px; display: flex; justify-content: space-between; }
 .cal-num a { color: var(--dim); text-decoration: none; font-size: 10px; }
-.cal-num a.has { color: var(--fg); text-decoration: underline; }
+.cal-num a.has { color: var(--accent); }
 .cal-task { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: grab; padding: 0 2px; }
 .cal-task:hover { background: var(--hl); }
 .cal-task.done { opacity: .45; text-decoration: line-through; }

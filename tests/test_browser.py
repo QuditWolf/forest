@@ -81,6 +81,29 @@ def test_landing_index_overview(page, server, web):
     pg.close()
 
 
+def test_links_look_clickable(page, server, web):
+    web.post("/api/forest/pages", json={"name": "Link Target", "content": "target"})
+    web.post("/api/forest/pages", json={"name": "Link Styles", "content":
+        "plain text here\n\n[[link-target]] and [[no-such-page]] and <https://example.org>\n\n#sometag"})
+    pg = page.context.new_page()
+    pg.goto(server.base + "/#forest/link-styles.md"); settle(pg, 1200)
+    if "/auth/login" in pg.url:
+        pg.fill("#password", PASSWORD); pg.click("button[type=submit]"); settle(pg, 1500)
+    color = lambda sel: pg.eval_on_selector(sel, "e => getComputedStyle(e).color")
+    accent = pg.evaluate("getComputedStyle(document.body).getPropertyValue('--accent').trim()")
+    assert accent == "#0066cc"
+    text = color("#view-pane p")
+    link = color("#view-pane a.wikilink:not(.broken)")
+    assert link == "rgb(0, 102, 204)" and link != text                          # clickable != plain text
+    assert color("#view-pane a[href^='http']") == link
+    assert color("#view-pane a.wikilink.broken") not in (link, text)           # broken: visibly different
+    pg.screenshot(path="/tmp/links-page.png")
+    pg.keyboard.press("h"); settle(pg, 800)
+    assert color(".ov-col li a") == link and color(".ov-head b") == text       # index: links vs labels
+    pg.screenshot(path="/tmp/links-index.png")
+    pg.close()
+
+
 def test_xss_resistance(page, server, web):
     created = web.post("/api/forest/pages", json={
         "name": "<img src=x onerror=window.__xss1=1>",
