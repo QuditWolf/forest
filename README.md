@@ -106,6 +106,16 @@ On Android Chrome it also appears in the Share menu ("forest" -> capture). The l
 phones (incl. landscape), tablets and desktops; the back gesture closes sheets and steps back
 through screens; when the server is unreachable you get an offline notice instead of an error.
 
+## Notifications
+
+Turn them on per device on `/admin` (open it in the installed app on your phone, "turn on for this
+device"). Forest pushes straight to the app (Web Push, end-to-end encrypted, no extra app or
+service): a morning digest (today's tasks with times, overdue, in progress), an evening preview of
+tomorrow, a weekly overview (times editable on `/admin`, empty = off), and task reminders from a
+task's "remind before" (`remind: [10m, 1h]`; date-only tasks count back from 09:00), with a "done"
+button. They respect silent mode and do-not-disturb. Needs the HTTPS address; on iPhone, install
+to the home screen first (iOS 16.4+). ntfy (`FOREST_NTFY_*`) is an optional second channel.
+
 ## Connect agents
 
 Create tokens on `/admin` (read-only by default; limit to vaults; optional expiry).

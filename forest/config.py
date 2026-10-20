@@ -105,6 +105,7 @@ NTFY_TOPIC = str(_get("ntfy", "topic", "FOREST_NTFY_TOPIC", ""))
 NTFY_TOKEN = str(_get("ntfy", "token", "FOREST_NTFY_TOKEN", ""))
 DIGEST_TIME = str(_get("ntfy", "digest_time", "FOREST_DIGEST_TIME", "08:00"))      # daily digest, "" = off
 WEEKLY_TIME = str(_get("ntfy", "weekly_time", "FOREST_WEEKLY_TIME", "sun 19:00"))  # weekly overview, "" = off
+EVENING_TIME = str(_get("ntfy", "evening_time", "FOREST_EVENING_TIME", "20:00"))   # tomorrow preview ("" = off)
 
 VALID_STATES     = ["todo", "in-progress", "blocked", "waiting", "done"]
 VALID_PRIORITIES = ["high", "medium", "low"]

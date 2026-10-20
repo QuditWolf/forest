@@ -78,6 +78,8 @@ def server(tmp_path_factory, ntfy):
         "FOREST_NTFY_TOKEN": "tk_ntfy",
         "FOREST_DIGEST_TIME": "",
         "FOREST_WEEKLY_TIME": "",
+        "FOREST_EVENING_TIME": "",
+        "FOREST_PUSH_ALLOW_HTTP": "1",
         "XDG_CONFIG_HOME": str(data / "clientcfg"),
         "PYTHONPATH": str(ROOT),
     }

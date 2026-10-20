@@ -20,7 +20,7 @@ from starlette.middleware.sessions import SessionMiddleware
 import asyncio
 import base64
 
-from . import auth, backup, features, githttp, oauth, reminders, store
+from . import auth, backup, features, githttp, oauth, reminders, store, webpush
 from .auth import Principal
 from .config import (COOKIE_SECURE, PUBLIC_URL, SERVER_HOST, SERVER_PORT, STATE_DIR,
                      VALID_PRIORITIES, VALID_STATES, session_secret)
@@ -570,6 +570,8 @@ def admin_ntfy_test(kind: str = "test"):
             reminders.daily_digest()
         elif kind == "weekly":
             reminders.weekly_overview()
+        elif kind == "evening":
+            reminders.evening_preview()
         elif kind == "reminders":
             reminders.due_reminders()   # send any due `remind:` pushes now
         else:
@@ -584,9 +586,65 @@ def admin_settings():
     _admin()
     from . import config as c
     return {"public_url": c.PUBLIC_URL, "timezone": c.TIMEZONE, "journal": c.JOURNAL, "inbox": c.INBOX,
-            "templates": c.TEMPLATES, "max_upload_mb": c.MAX_UPLOAD_MB, "ntfy": reminders.enabled(),
+            "templates": c.TEMPLATES, "max_upload_mb": c.MAX_UPLOAD_MB, "ntfy": reminders.ntfy_enabled(),
             "ntfy_url": c.NTFY_URL, "ntfy_topic": (c.NTFY_TOPIC[:3] + "...") if c.NTFY_TOPIC else "",
             "digest_time": c.DIGEST_TIME, "weekly_time": c.WEEKLY_TIME}
+
+
+# ── Notifications: devices (Web Push) and digest times. Web login only. ─────
+
+@app.get("/api/push/key")
+def push_key():
+    _admin()
+    return {"key": webpush.public_key()}
+
+
+@app.get("/api/push/devices")
+def push_devices():
+    _admin()
+    return [webpush.public(d) for d in webpush.devices()]
+
+
+@app.post("/api/push/devices", status_code=201)
+def push_subscribe(body: dict):
+    _admin()
+    with _errors():
+        d = webpush.subscribe(body.get("subscription") or {}, str(body.get("name") or ""))
+    auth.audit("push.subscribe", device=d["id"], name=d["name"])
+    return d
+
+
+@app.delete("/api/push/devices/{dev}")
+def push_unsubscribe(dev: str):
+    _admin()
+    if not webpush.unsubscribe(dev):
+        raise HTTPException(404, "no such device")
+    auth.audit("push.unsubscribe", device=dev)
+    return {"ok": True}
+
+
+@app.post("/api/push/test")
+def push_test(device: Optional[str] = None):
+    _admin()
+    n = webpush.send_all("forest: test", "Notifications work on this device.", url="/tasks", tag="test", only=device)
+    if not n:
+        raise HTTPException(400, "not delivered (see the device's last error)")
+    return {"delivered": n}
+
+
+@app.get("/api/admin/notify")
+def admin_notify():
+    _admin()
+    return {**reminders.settings(), "devices": len(webpush.devices()), "ntfy": reminders.ntfy_enabled()}
+
+
+@app.put("/api/admin/notify")
+def admin_set_notify(body: dict):
+    _admin()
+    with _errors():
+        st = reminders.set_settings(body)
+    auth.audit("notify.settings", **st)
+    return st
 
 
 @app.get("/api/admin/mode")

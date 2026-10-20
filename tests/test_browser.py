@@ -553,3 +553,44 @@ def test_pwa_install_and_offline(page, server):
     assert "offline" in pg.inner_text("body").lower()
     ctx.set_offline(False)
     ctx.close()
+
+
+def test_push_in_service_worker_and_admin(page, server, web):
+    """A push reaches the service worker, shows a notification with the right icon/url/buttons;
+    the admin page lists devices and the times."""
+    ctx = page.context.browser.new_context(viewport={"width": 412, "height": 915}, is_mobile=True, has_touch=True)
+    ctx.add_cookies(page.context.cookies())
+    ctx.grant_permissions(["notifications"], origin=server.base)
+    pg = ctx.new_page()
+    pg.goto(server.base + "/admin"); settle(pg, 1200)
+    if "/auth/login" in pg.url:
+        pg.fill("#password", PASSWORD); pg.click("button[type=submit]"); settle(pg, 1500)
+    assert pg.is_visible("#notify") and "morning digest" in pg.inner_text("#notify")
+    assert pg.evaluate("navigator.serviceWorker.ready.then(r => !!r.active)")
+    cdp = ctx.new_cdp_session(pg)
+    cdp.send("ServiceWorker.enable")
+    reg_id = None
+    for _ in range(20):
+        regs = []
+        cdp.on("ServiceWorker.workerRegistrationUpdated", lambda e: regs.extend(e["registrations"]))
+        settle(pg, 200)
+        if regs:
+            reg_id = regs[0]["registrationId"]; break
+    assert reg_id, "no service worker registration"
+    payload = {"title": "reminder: Dentist", "body": "2026-10-21 16:00", "url": server.base + "/tasks#tasks/dentist.md",
+               "tag": "remind:tasks:dentist.md", "actions": [{"action": "a0", "title": "done", "url": server.base + "/api/remind/action/x"}]}
+    import json as _json
+    cdp.send("ServiceWorker.deliverPushMessage", {"origin": server.base, "registrationId": reg_id, "data": _json.dumps(payload)})
+    settle(pg, 800)
+    shown = pg.evaluate("""navigator.serviceWorker.ready.then(r => r.getNotifications()).then(ns => ns.map(n =>
+        ({title: n.title, body: n.body, icon: n.icon, tag: n.tag, url: n.data.url, actions: n.actions.map(a => a.title)})))""")
+    assert shown and shown[-1]["title"] == "reminder: Dentist" and shown[-1]["body"] == "2026-10-21 16:00"
+    assert shown[-1]["icon"].endswith("/icons/tasks-192.png") and shown[-1]["actions"] == ["done"]
+    assert shown[-1]["url"].endswith("/tasks#tasks/dentist.md") and shown[-1]["tag"] == "remind:tasks:dentist.md"
+    # same tag replaces instead of piling up
+    cdp.send("ServiceWorker.deliverPushMessage", {"origin": server.base, "registrationId": reg_id, "data": _json.dumps({**payload, "body": "again"})})
+    settle(pg, 800)
+    same = pg.evaluate("navigator.serviceWorker.ready.then(r => r.getNotifications({tag: 'remind:tasks:dentist.md'})).then(ns => ns.map(n => n.body))")
+    assert same == ["again"]
+    pg.screenshot(path="/tmp/admin-notify.png", full_page=True)
+    ctx.close()

@@ -51,6 +51,9 @@ pre { padding: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-a
   <a href="/auth/logout">logout</a>
 </header>
 
+<h2 id="notifications">notifications</h2>
+<section class="box small" id="notify"></section>
+
 <h2>assistant mode</h2>
 <section class="box small" id="mode"></section>
 
@@ -162,7 +165,7 @@ async function renderExtras() {
       <button onclick="ntfyTest('test')" ${st.ntfy ? '' : 'disabled'}>send test</button>
       <button onclick="ntfyTest('digest')" ${st.ntfy ? '' : 'disabled'}>send daily digest now</button>
       <button onclick="ntfyTest('weekly')" ${st.ntfy ? '' : 'disabled'}>send weekly overview now</button>
-      <span class="dim">per task: frontmatter <code>remind: 2026-10-01T09:00</code> (done / snooze buttons in the push)</span></div>`;
+      <span class="dim">optional second channel: gets the same digests and task reminders as your devices</span></div>`;
 }
 const MODE_HELP = {
   off: 'agents use forest only when you ask',
@@ -181,7 +184,72 @@ async function renderMode() {
     $('mode-help').textContent = MODE_HELP[r.value];
   }));
 }
-async function ntfyTest(kind) { await api('/api/admin/ntfy-test?kind=' + kind, 'POST'); alert('sent'); }
+// ── notifications: Web Push to this device + digest times ──
+function deviceName() {
+  const ua = navigator.userAgent;
+  const os = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : 'device';
+  const br = /Firefox\//.test(ua) ? 'Firefox' : /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'browser';
+  return `${os} ${br}`;
+}
+async function mySubscription() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  const reg = await navigator.serviceWorker.ready;
+  return reg.pushManager.getSubscription();
+}
+async function enablePush() {
+  try {
+    if (!window.isSecureContext) return alert('Notifications need the https address of forest (not the plain http VPN address).');
+    if (!('PushManager' in window)) return alert('This browser has no push support. On iPhone: install forest to the home screen first (Share, Add to Home Screen), then open it from there.');
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return alert('Notifications are blocked for this site. Allow them in the browser\'s site settings, then try again.');
+    const { key } = await api('/api/push/key');
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    await api('/api/push/devices', 'POST', { subscription: sub.toJSON(), name: deviceName() });
+    renderNotify();
+  } catch (e) { if (e.message !== '401') alert('Could not turn on notifications: ' + e.message); }
+}
+async function removeDevice(id, mine) {
+  await api('/api/push/devices/' + id, 'DELETE');
+  if (mine) { const sub = await mySubscription(); if (sub) await sub.unsubscribe(); }
+  renderNotify();
+}
+async function pushTest(id) {
+  try { const r = await api('/api/push/test' + (id ? '?device=' + id : ''), 'POST'); }
+  finally { renderNotify(); }
+}
+async function renderNotify() {
+  const [st, devs, sub] = await Promise.all([api('/api/admin/notify'), api('/api/push/devices'), mySubscription().catch(() => null)]);
+  let myHash = null;
+  if (sub && crypto.subtle) {
+    const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sub.endpoint));
+    myHash = [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+  }
+  const thisOn = devs.some(d => d.ep === myHash);
+  $('notify').innerHTML = `
+    <div class="row">${thisOn ? '<span class="ok">on for this device</span>' : `<button class="primary" onclick="enablePush()">turn on for this device</button>`}
+      <span class="dim">notification bar + on-screen pop-up as your phone allows; silent mode and do-not-disturb are respected</span></div>
+    <div style="overflow-x:auto"><table style="margin-top:8px"><thead><tr><th>device</th><th>since</th><th>last delivered</th><th></th></tr></thead><tbody>
+    ${devs.length ? devs.map(d => `<tr><td>${esc(d.name)}${d.ep === myHash ? ' <span class="dim">(this device)</span>' : ''}</td><td>${ago(d.created)}</td>
+      <td>${ago(d.last_ok)}${d.last_error ? ` <span class="bad" title="${esc(d.last_error)}">error</span>` : ''}</td>
+      <td><button onclick="pushTest('${esc(d.id)}')">test</button> <button class="danger" onclick="removeDevice('${esc(d.id)}', ${d.ep === myHash})">remove</button></td></tr>`).join('')
+      : '<tr><td colspan="4" class="dim">no devices yet: open this page on your phone (installed app) and turn it on</td></tr>'}
+    </tbody></table></div>
+    <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:10px">
+      <label>morning digest <input type="text" id="n-morning" value="${esc(st.morning)}" placeholder="off" style="width:70px"></label>
+      <label>evening, tomorrow preview <input type="text" id="n-evening" value="${esc(st.evening)}" placeholder="off" style="width:70px"></label>
+      <label>weekly overview <input type="text" id="n-weekly" value="${esc(st.weekly)}" placeholder="off" style="width:110px"></label>
+      <button onclick="saveNotify()">save</button>
+      <button onclick="ntfyTest('digest')" ${devs.length || st.ntfy ? '' : 'disabled'}>send digest now</button>
+      <button onclick="ntfyTest('evening')" ${devs.length || st.ntfy ? '' : 'disabled'}>send preview now</button></div>
+    <div class="dim" style="margin-top:4px">times like 08:00, weekly like sun 19:00, empty = off. Task reminders: set "remind before" on a task (e.g. 10m, 1h); Google Calendar alarms are separate.</div>`;
+}
+async function saveNotify() {
+  await api('/api/admin/notify', 'PUT', { morning: $('n-morning').value, evening: $('n-evening').value, weekly: $('n-weekly').value });
+  renderNotify();
+}
+async function ntfyTest(kind) { await api('/api/admin/ntfy-test?kind=' + kind, 'POST'); alert('sent'); renderNotify(); }
 
 async function loadTokens() {
   const ts = await api('/api/admin/tokens');
@@ -262,6 +330,7 @@ $('a-filter').addEventListener('change', loadAudit);
   renderConnect(me.vaults);
   renderExtras();
   renderMode();
+  renderNotify();
   loadTokens(); loadClients(); loadAudit();
 })();
 </script>

@@ -1,8 +1,8 @@
-"""ntfy push notifications: daily digest, weekly overview, per-page `remind:` reminders.
+"""Notifications: morning digest, evening preview of tomorrow, weekly overview, per-task `remind:`.
 
+Delivered as Web Push to the installed forest apps (forest/webpush.py) and, if configured, to ntfy.
 Runs as an asyncio loop inside the server (no extra service). Action buttons ("done",
-"snooze 1d") call back into /api/remind/action/<signed token>, so no API token is ever
-sent to ntfy.
+"snooze 1d") call back into /api/remind/action/<signed token>, so no API token is ever sent out.
 """
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ from typing import Optional
 import httpx
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-from . import auth, store
-from .config import (DIGEST_TIME, NTFY_TOKEN, NTFY_TOPIC, NTFY_URL, PUBLIC_URL, STATE_DIR,
+from . import auth, store, webpush
+from .config import (DIGEST_TIME, EVENING_TIME, NTFY_TOKEN, NTFY_TOPIC, NTFY_URL, PUBLIC_URL, STATE_DIR,
                      WEEKLY_TIME, session_secret)
 
 log = logging.getLogger("forest.reminders")
@@ -25,8 +25,48 @@ _signer: Optional[URLSafeTimedSerializer] = None
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 
-def enabled() -> bool:
+def ntfy_enabled() -> bool:
     return bool(NTFY_URL and NTFY_TOPIC)
+
+
+def enabled() -> bool:
+    """Any channel to deliver to: a device with notifications on, or ntfy."""
+    return ntfy_enabled() or webpush.has_devices()
+
+
+# ── schedule settings (editable on /admin; env gives the defaults) ────────────
+
+def _settings_file():
+    return STATE_DIR / "notify.json"
+
+
+def settings() -> dict:
+    s = {"morning": DIGEST_TIME, "evening": EVENING_TIME, "weekly": WEEKLY_TIME}
+    try:
+        s.update(json.loads(_settings_file().read_text()))
+    except Exception:
+        pass
+    return s
+
+
+def set_settings(new: dict) -> dict:
+    s = settings()
+    for k in ("morning", "evening"):
+        if k in new:
+            v = (new[k] or "").strip().lower()
+            if v and v != "off":
+                v = store.parse_time(v)
+            s[k] = "" if v == "off" else v
+    if "weekly" in new:
+        v = (new["weekly"] or "").strip().lower()
+        if v and v != "off":
+            parts = v.split()
+            if len(parts) != 2 or parts[0][:3] not in DAYS:
+                raise ValueError("weekly: e.g. 'sun 19:00' (or empty = off)")
+            v = f"{parts[0][:3]} {store.parse_time(parts[1])}"
+        s["weekly"] = "" if v == "off" else v
+    _settings_file().write_text(json.dumps(s))
+    return s
 
 
 def signer() -> URLSafeTimedSerializer:
@@ -64,9 +104,20 @@ def run_action(token: str) -> dict:
 
 
 def send(title: str, message: str, click: Optional[str] = None, actions: Optional[list] = None,
-         tags: Optional[list] = None, priority: int = 3) -> None:
+         tags: Optional[list] = None, priority: int = 3, tag: Optional[str] = None) -> None:
+    """Deliver to every channel. actions: ntfy-style [{"label", "url", ...}] (POST callbacks)."""
     if not enabled():
-        raise RuntimeError("ntfy not configured (FOREST_NTFY_URL / FOREST_NTFY_TOPIC)")
+        raise RuntimeError("no notification channel: turn notifications on for a device on /admin "
+                           "(or configure ntfy)")
+    if webpush.has_devices():
+        webpush.send_all(title, message, url=click, tag=tag, urgent=priority >= 4,
+                         actions=[{"action": f"a{i}", "title": a["label"], "url": a["url"]}
+                                  for i, a in enumerate(actions or [])])
+    if ntfy_enabled():
+        _ntfy(title, message, click, actions, tags, priority)
+
+
+def _ntfy(title, message, click, actions, tags, priority) -> None:
     body = {"topic": NTFY_TOPIC, "title": title, "message": message[:3900], "priority": priority}
     if click:
         body["click"] = click
@@ -103,18 +154,46 @@ def _lines(items: list, n: int = 8) -> str:
     return "\n".join(out)
 
 
+def _day_lines(items: list, n: int = 10) -> str:
+    """Timed first in time order ('09:30 Standup'), then the rest of the day."""
+    items = sorted(items, key=lambda p: (p.get("at") is None, p.get("at") or "", p["name"].lower()))
+    out = [(f"{p['at']} " if p.get("at") else "- ") + p["name"] for p in items[:n]]
+    if len(items) > n:
+        out.append(f"  +{len(items) - n} more")
+    return "\n".join(out)
+
+
 def daily_digest() -> None:
-    from .features import review
+    from .features import review, today
     r = review("day")
+    todays = store.agenda(due_on="today")
+    overdue = r["overdue"]
+    doing = [p for p in r["in_progress"] if p not in todays and p not in overdue]
     parts = []
-    if r["overdue"]:
-        parts.append(f"Overdue ({len(r['overdue'])}):\n{_lines(r['overdue'])}")
-    if r["due_soon"]:
-        parts.append(f"Due soon ({len(r['due_soon'])}):\n{_lines(r['due_soon'])}")
-    if r["in_progress"]:
-        parts.append(f"In progress ({len(r['in_progress'])}):\n{_lines(r['in_progress'], 5)}")
-    parts.append(f"Inbox: {r['inbox_count']}")
-    send(f"forest: {r['today']}", "\n\n".join(parts), click=f"{PUBLIC_URL}/tasks", tags=["calendar"])
+    if todays:
+        parts.append(_day_lines(todays))
+    if overdue:
+        parts.append(f"Overdue ({len(overdue)}):\n{_lines(overdue, 5)}")
+    if doing:
+        parts.append(f"In progress ({len(doing)}):\n{_lines(doing, 5)}")
+    if r["inbox_count"]:
+        parts.append(f"Inbox: {r['inbox_count']}")
+    head = f"today: {len(todays)} task{'s' if len(todays) != 1 else ''}" + (f", {len(overdue)} overdue" if overdue else "")
+    send(head, "\n\n".join(parts) or "Nothing due today.", click=f"{PUBLIC_URL}/tasks#today", tags=["calendar"],
+         tag="digest")
+
+
+def evening_preview() -> None:
+    """Tomorrow at a glance; silent when there is nothing to say."""
+    tom = store.agenda(due_on="tomorrow")
+    overdue = store.agenda(overdue=True)
+    if not tom and not overdue:
+        return
+    parts = [_day_lines(tom)] if tom else ["Nothing due tomorrow."]
+    if overdue:
+        parts.append(f"Still overdue: {len(overdue)}")
+    send(f"tomorrow: {len(tom)} task{'s' if len(tom) != 1 else ''}", "\n\n".join(parts),
+         click=f"{PUBLIC_URL}/tasks#tomorrow", tags=["crescent_moon"], tag="evening")
 
 
 def weekly_overview() -> None:
@@ -184,7 +263,9 @@ def due_reminders() -> None:
             if pending:
                 msg = p.name + (f"\n{p.due}" + (f" {p.extra['at']}" if p.extra.get("at") else "") if p.due else "") \
                     + (f"\n{p.state}" if p.state else "")
-                send(f"reminder: {p.name}", msg, click=page_url(v.name, p.path), tags=["bell"], priority=4,
+                click = f"{PUBLIC_URL}/tasks#{v.name}/{p.path}" if v.is_tasks else page_url(v.name, p.path)
+                send(f"reminder: {p.name}", msg, click=click, tags=["bell"], priority=4,
+                     tag=f"remind:{key}",
                      actions=[{"action": "http", "label": "done", "url": action_url(v.name, p.path, "done"),
                                "method": "POST", "clear": True}]
                      # snooze rewrites `remind` to a one-off time, so only offer it for one-off reminders
@@ -220,15 +301,19 @@ def _due_now(spec: str, t: datetime, key: str, weekly: bool = False) -> bool:
 
 async def loop() -> None:
     from .features import now
-    if not enabled():
-        return
-    log.info("ntfy reminders enabled → %s/%s", NTFY_URL, NTFY_TOPIC)
+    if ntfy_enabled():
+        log.info("ntfy enabled → %s/%s", NTFY_URL, NTFY_TOPIC)
     while True:
         try:
-            t = now()
-            if _due_now(DIGEST_TIME, t, "digest"):
+            if not enabled():           # nothing to deliver to (yet): check again next minute
+                await asyncio.sleep(60)
+                continue
+            t, st = now(), settings()
+            if _due_now(st["morning"], t, "digest"):
                 await asyncio.to_thread(daily_digest)
-            if _due_now(WEEKLY_TIME, t, "weekly", weekly=True):
+            if _due_now(st["evening"], t, "evening"):
+                await asyncio.to_thread(evening_preview)
+            if _due_now(st["weekly"], t, "weekly", weekly=True):
                 await asyncio.to_thread(weekly_overview)
             await asyncio.to_thread(due_reminders)
         except Exception as e:  # keep the loop alive

@@ -20,6 +20,7 @@ dependencies = [
   "markdownify",
   "readability-lxml",
   "tzdata",
+  "cryptography",
 ]
 
 [project.optional-dependencies]

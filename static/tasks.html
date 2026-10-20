@@ -910,6 +910,8 @@ addEventListener('popstate', e => {
 function openFromHash() {
   if (S.popping) return;
   if (location.hash === '#add') { history.replaceState(null, '', '/tasks'); mobileAddTask(); return; }
+  const agendaHash = { '#today': '*agenda:today', '#tomorrow': '*agenda:tomorrow', '#calendar': '*calendar' }[location.hash];
+  if (agendaHash) { history.replaceState(null, '', '/tasks'); navGo(agendaHash).then(() => isMobile() && setView(agendaHash === '*calendar' ? 'cal' : 'list')); return; }
   const h = decodeURIComponent(location.hash.slice(1));
   const i = h.indexOf('/');
   if (i > 0 && S.vaults.includes(h.slice(0, i)) && h.slice(i + 1)) selectTask({ vault: h.slice(0, i), path: h.slice(i + 1) }, true);
