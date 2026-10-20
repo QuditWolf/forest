@@ -327,3 +327,46 @@ def test_ntfy(web, agent, ntfy, server):
     assert agent.get("/api/tasks/page/remind-me.md").json()["extra"]["remind"] > past
     # non-admin can't trigger
     assert agent.post("/api/admin/ntfy-test").status_code == 403
+
+
+def test_task_scheduling_fields(web, agent, ntfy, server):
+    from datetime import date as _d
+    today = _d.today()
+    # create with time/duration/reminders, normalised
+    r = agent.post("/api/tasks/pages", json={"name": "Standup", "state": "todo", "due": today.isoformat(),
+                                             "at": "9:30", "duration": "90", "remind": "1h, 10m"})
+    assert r.status_code == 201, r.text
+    t = r.json()
+    assert t["extra"]["at"] == "09:30" and t["extra"]["duration"] == "1h30m" and t["extra"]["remind"] == ["10m", "1h"]
+    # update and clear
+    t = agent.patch("/api/tasks/page/standup.md", json={"at": "2:15pm", "remind": ["1d"]}).json()
+    assert t["extra"]["at"] == "14:15" and t["extra"]["remind"] == ["1d"] and t["extra"]["duration"] == "1h30m"
+    t = agent.patch("/api/tasks/page/standup.md", json={"duration": ""}).json()
+    assert "duration" not in t["extra"]
+    # bad values and knowledge pages are refused
+    assert agent.patch("/api/tasks/page/standup.md", json={"at": "25:00"}).status_code == 400
+    assert agent.patch("/api/tasks/page/standup.md", json={"remind": ["5w"]}).status_code == 400
+    assert agent.post("/api/forest/pages", json={"name": "Not a task", "at": "10:00"}).status_code == 400
+    # hand-written unquoted YAML time (parsed as 840 by YAML 1.1) is understood and stored normalised
+    raw = f"---\nname: Raw timed\nstate: todo\ndue: {today}\nat: 14:00\n---\nx\n"
+    assert agent.put("/api/tasks/raw/raw-timed.md", json={"text": raw}).status_code == 200
+    assert "at: '14:00'" in agent.get("/api/tasks/page/raw-timed.md", params={"raw": "true"}).json()["text"]
+    # agenda: timed tasks of a day sorted by time, fields included
+    agent.post("/api/tasks/pages", json={"name": "Early", "state": "todo", "due": today.isoformat(), "at": "07:00"})
+    day = [x for x in agent.get("/api/agenda", params={"due_on": "today"}).json() if x["at"]]
+    assert [x["name"] for x in day][:3] == ["Early", "Raw timed", "Standup"]
+    assert day[2]["at"] == "14:15" and day[2]["remind"] == ["1d"]
+    # calendar feed: timed event in UTC (test server runs in UTC) with alarms
+    ics = web.get("/api/calendar.ics").text
+    ev = ics.split("SUMMARY:○ Standup")[0].rsplit("BEGIN:VEVENT", 1)[1]
+    assert f"DTSTART:{today.strftime('%Y%m%d')}T141500Z" in ev and f"DTEND:{today.strftime('%Y%m%d')}T144500Z" in ev
+    assert "TRIGGER:-PT1440M" in ics.split("SUMMARY:○ Standup")[1].split("END:VEVENT")[0]
+    # ntfy: offset reminders fire once, relative to due + at
+    ntfy.messages.clear()
+    soon = datetime.now(timezone.utc) + timedelta(minutes=5)
+    agent.post("/api/tasks/pages", json={"name": "Call Bob", "state": "todo", "due": soon.date().isoformat(),
+                                         "at": soon.strftime("%H:%M"), "remind": ["10m", "2h"]})
+    web.post("/api/admin/ntfy-test", params={"kind": "reminders"})
+    web.post("/api/admin/ntfy-test", params={"kind": "reminders"})
+    sent = [m for m in ntfy.messages if m["title"] == "reminder: Call Bob"]
+    assert len(sent) == 1 and [a["label"] for a in sent[0]["actions"]] == ["done"]   # one push, no repeats

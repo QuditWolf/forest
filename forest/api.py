@@ -329,6 +329,9 @@ class PageCreate(BaseModel):
     due: Optional[date] = None
     tags: Optional[List[str]] = None
     template: Optional[str] = None
+    at: Optional[str] = None            # tasks: time on the due date, HH:MM
+    duration: Optional[str] = None      # tasks: e.g. 30m, 1h30m
+    remind: Optional[Any] = None        # tasks: offsets before, e.g. ["10m", "1h"]
 
 
 class PageUpdate(BaseModel):
@@ -339,6 +342,9 @@ class PageUpdate(BaseModel):
     due: Optional[date] = None
     tags: Optional[List[str]] = None
     extra: Optional[Dict[str, Any]] = None
+    at: Optional[str] = None            # "" clears
+    duration: Optional[str] = None
+    remind: Optional[Any] = None
     expected_sha: Optional[str] = None
 
 
@@ -720,7 +726,9 @@ def create_page(vault: str, body: PageCreate):
     with _errors():
         return V(vault, True).create_page(body.parent_path, body.name, content=body.content,
                                           state=body.state, priority=body.priority, due=body.due,
-                                          tags=body.tags, as_folder=body.as_folder, template=body.template)
+                                          tags=body.tags, as_folder=body.as_folder, template=body.template,
+                                          extra={k: v for k in ("at", "duration", "remind")
+                                                 if (v := getattr(body, k)) not in (None, "")})
 
 
 @app.patch("/api/{vault}/page/{path:path}")
@@ -728,6 +736,9 @@ def update_page(vault: str, path: str, body: PageUpdate):
     """Update fields. Only fields present in the body change; pass expected_sha to detect conflicts."""
     updates = body.model_dump(exclude_unset=True)
     sha = updates.pop("expected_sha", None)
+    sched = {k: updates.pop(k) for k in ("at", "duration", "remind") if k in updates}
+    if sched:
+        updates["extra"] = {**(updates.get("extra") or {}), **{k: (None if v in ("", []) else v) for k, v in sched.items()}}
     with _errors():
         return V(vault, True).update_page(path, expected_sha=sha, **updates)
 

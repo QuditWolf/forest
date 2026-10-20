@@ -108,6 +108,32 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
 .cal-task.done { opacity: .45; text-decoration: line-through; }
 .cal-task.overdue { color: var(--bad); }
 .cal-task.s-in-progress { font-weight: bold; }
+.cal-views { display: flex; gap: 2px; font-weight: normal; }
+.cal-views button.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+/* week / day: hours */
+.cal-time { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.tg-row { display: grid; grid-template-columns: 46px repeat(var(--n), minmax(0, 1fr)); }
+.tg-head > div { font-size: 11px; padding: 3px 4px; border-bottom: 1px solid var(--border); color: var(--dim); white-space: nowrap; overflow: hidden; }
+.tg-head > div.today { color: var(--fg); font-weight: bold; }
+.tg-allday { border-bottom: 1px solid var(--border); min-height: 24px; max-height: 30%; overflow-y: auto; }
+.tg-allday > div { padding: 1px 2px; border-right: 1px solid var(--hl); min-width: 0; }
+.tg-allday > div.drop { background: var(--hl); }
+.tg-gut { font-size: 10px; color: var(--dim); text-align: right; padding-right: 4px; }
+.tg-body { flex: 1; overflow-y: auto; position: relative; }
+.tg-body .tg-row { height: calc(24 * var(--h)); }
+.tg-hours { position: relative; }
+.tg-hours span { position: absolute; right: 4px; font-size: 10px; color: var(--dim); transform: translateY(-50%); }
+.tg-col { position: relative; border-right: 1px solid var(--hl); min-width: 0;
+  background: repeating-linear-gradient(to bottom, var(--hl) 0, var(--hl) 1px, transparent 1px, transparent var(--h)); }
+.tg-col.today { background-color: color-mix(in srgb, var(--accent) 4%, transparent); }
+.tg-col.drop { background-color: var(--hl); }
+.tg-ev { position: absolute; left: 1px; right: 1px; font-size: 11px; line-height: 1.25; padding: 1px 4px; overflow: hidden; cursor: grab;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg)); border-left: 3px solid var(--accent); border-radius: 2px; }
+.tg-ev .tm { color: var(--dim); font-size: 10px; }
+.tg-ev.done { opacity: .45; text-decoration: line-through; }
+.tg-ev.overdue { border-left-color: var(--bad); }
+.tg-ev:hover { z-index: 3; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+.tg-now { position: absolute; left: 0; right: 0; height: 2px; background: var(--bad); z-index: 2; pointer-events: none; }
 .ac-box { position: absolute; left: 0; right: 0; top: 100%; background: var(--bg); border: 1px solid var(--fg); z-index: 20; font-size: 12px; }
 .ac-item { padding: 2px 6px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ac-item.sel, .ac-item:hover { background: var(--hl); }
@@ -162,6 +188,8 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
   .cal-day { padding: 2px; }
   .cal-task { font-size: 10px; padding: 3px 1px; }
   .cal-num a { display: none; }
+  .cal-time { --h: 48px; }
+  .tg-ev { font-size: 12px; }
   #bottomnav { display: flex !important; height: calc(56px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
     border-top: 1px solid var(--border); background: var(--sidebar-bg); flex-shrink: 0; }
   #bottomnav button, #bottomnav a { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
@@ -236,6 +264,7 @@ textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.45; 
       <button onclick="calMove(-1)">&lt;</button>
       <button onclick="calMove(0)">today</button>
       <span class="grow" id="cal-title"></span>
+      <span class="cal-views"><button data-cv="day" onclick="calView('day')">day</button><button data-cv="week" onclick="calView('week')">week</button><button data-cv="month" onclick="calView('month')">month</button></span>
       <button onclick="calMove(1)">&gt;</button>
     </div>
     <div class="cal-grid" id="cal-grid"></div>
@@ -439,7 +468,7 @@ function renderList() {
     return `<div class="task-item ${isSel(t) ? 'active' : ''} ${dueClass(t)}" data-i="${i}" style="padding-left:${8 + depth * 14}px">
       <span class="task-icon" data-toggle="${i}" title="toggle done [x]">${ICON[t.state] || '·'}</span>
       <span class="task-name">${esc(t.name)}${t.is_folder ? ' <span class="task-where">+</span>' : ''}${where}</span>
-      <span class="task-meta"><span>${DOT[t.priority] || ''}</span>${t.due ? `<span class="task-due">${esc(t.due)}</span>` : ''}</span></div>`;
+      <span class="task-meta"><span>${DOT[t.priority] || ''}</span>${t.due ? `<span class="task-due">${esc(t.due)}${t.at ? ' ' + esc(t.at) : ''}</span>` : ''}</span></div>`;
   }).join('');
   el.querySelectorAll('.task-item').forEach(d => d.addEventListener('click', e => {
     const i = +d.dataset.i;
@@ -454,8 +483,16 @@ async function quickToggle(t) {
 }
 
 // ── calendar (month grid, drag a task to another day to change its due date) ──
+const HOUR = () => window.matchMedia('(max-width: 760px)').matches ? 48 : 44;
+function calView(v) { S.calView = v; localStorage.setItem('t-calview', v); renderCalendar(); }
+function calAnchor() { return S.calAnchor || new Date(today() + 'T12:00'); }
+
 async function renderCalendar() {
-  const base = S.calMonth || new Date(today() + 'T12:00');
+  S.calView = S.calView || localStorage.getItem('t-calview') || (window.forestApp && forestApp.isPhone() ? 'day' : 'week');
+  document.querySelectorAll('[data-cv]').forEach(b => b.classList.toggle('on', b.dataset.cv === S.calView));
+  $('cal-grid').className = S.calView === 'month' ? 'cal-grid' : 'cal-time';
+  if (S.calView !== 'month') return renderTimeGrid();
+  const base = S.calMonth || calAnchor();
   S.calMonth = new Date(base.getFullYear(), base.getMonth(), 1, 12);
   const y = S.calMonth.getFullYear(), m = S.calMonth.getMonth();
   $('cal-title').textContent = S.calMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' });
@@ -499,9 +536,98 @@ async function renderCalendar() {
   });
 }
 function calMove(n) {
-  if (n === 0) S.calMonth = null;
-  else S.calMonth = new Date(S.calMonth.getFullYear(), S.calMonth.getMonth() + n, 1, 12);
+  if (n === 0) { S.calMonth = null; S.calAnchor = null; }
+  else if (S.calView === 'month') S.calMonth = new Date(S.calMonth.getFullYear(), S.calMonth.getMonth() + n, 1, 12);
+  else { const d = new Date(calAnchor()); d.setDate(d.getDate() + n * (S.calView === 'week' ? 7 : 1)); S.calAnchor = d; }
   renderCalendar();
+}
+
+// ── week / day: tasks with a time sit at their hour, date-only tasks in the all-day row ──
+async function renderTimeGrid() {
+  const H = HOUR(), anchor = calAnchor();
+  const days = [];
+  const first = new Date(anchor);
+  if (S.calView === 'week') first.setDate(first.getDate() - ((first.getDay() + 6) % 7));
+  for (let i = 0; i < (S.calView === 'week' ? 7 : 1); i++) { const d = new Date(first); d.setDate(first.getDate() + i); days.push(d); }
+  const fmt = (d, o) => d.toLocaleDateString(undefined, o);
+  $('cal-title').textContent = S.calView === 'week'
+    ? `${fmt(days[0], { day: 'numeric', month: 'short' })} - ${fmt(days[6], { day: 'numeric', month: 'short', year: 'numeric' })}`
+    : fmt(days[0], { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
+  $('cat-title').textContent = 'calendar';
+  const tasks = await api('/api/agenda?state=all');
+  const keys = days.map(iso), byDay = {};
+  tasks.filter(t => t.due && keys.includes(t.due)).forEach(t => (byDay[t.due] ??= []).push(t));
+  const mins = t => { const [h, m] = t.at.split(':').map(Number); return h * 60 + m; };
+  const dur = t => { const m = /^(?:(\d+)w)?(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?$/.exec(t.duration || ''); return m && m[0] ? (((+m[1] || 0) * 7 + (+m[2] || 0)) * 24 + (+m[3] || 0)) * 60 + (+m[4] || 0) : 30; };
+  const cls = (t, k) => `${t.state === 'done' ? 'done' : ''} ${k < today() && t.state !== 'done' ? 'overdue' : ''} s-${esc(t.state)}`;
+  const attrs = t => `draggable="true" data-vault="${esc(t.vault)}" data-path="${esc(t.path)}" title="${esc(t.name + (t.at ? ' ' + t.at : '') + (t.duration ? ' (' + t.duration + ')' : ''))}"`;
+  const head = `<div class="tg-row tg-head" style="--n:${days.length}"><div></div>${days.map((d, i) =>
+    `<div class="${keys[i] === today() ? 'today' : ''}">${esc(fmt(d, { weekday: 'short', day: 'numeric' }))}</div>`).join('')}</div>`;
+  const allday = `<div class="tg-row tg-allday" style="--n:${days.length}"><div class="tg-gut">all day</div>${keys.map(k =>
+    `<div data-day="${k}">${(byDay[k] || []).filter(t => !t.at).map(t => `<div class="cal-task ${cls(t, k)}" ${attrs(t)}>${ICON[t.state] || '·'} ${esc(t.name)}</div>`).join('')}</div>`).join('')}</div>`;
+  const cols = keys.map(k => {
+    // overlapping events share the column side by side
+    const evs = (byDay[k] || []).filter(t => t.at).map(t => ({ t, s: mins(t), e: mins(t) + Math.max(dur(t), 15) })).sort((a, b) => a.s - b.s || b.e - a.e);
+    let group = [], end = -1;
+    const flush = () => { const lanes = []; group.forEach(ev => { let l = lanes.findIndex(x => x <= ev.s); if (l < 0) { l = lanes.length; lanes.push(0); } lanes[l] = ev.e; ev.lane = l; }); group.forEach(ev => ev.n = lanes.length); group = []; };
+    evs.forEach(ev => { if (ev.s >= end) { flush(); end = ev.e; } else end = Math.max(end, ev.e); group.push(ev); }); flush();
+    const now = new Date(), nowM = now.getHours() * 60 + now.getMinutes();
+    return `<div class="tg-col ${k === today() ? 'today' : ''}" data-day="${k}">${evs.map(ev =>
+      `<div class="tg-ev ${cls(ev.t, k)}" ${attrs(ev.t)} style="top:${ev.s * H / 60}px;height:${Math.max((ev.e - ev.s) * H / 60 - 2, 16)}px;left:calc(${100 * ev.lane / ev.n}% + 1px);right:auto;width:calc(${100 / ev.n}% - 2px)">` +
+      `<span class="tm">${esc(ev.t.at)}</span> ${ICON[ev.t.state] || ''} ${esc(ev.t.name)}</div>`).join('')}` +
+      `${k === today() ? `<div class="tg-now" style="top:${nowM * H / 60}px"></div>` : ''}</div>`;
+  }).join('');
+  const hours = Array.from({ length: 23 }, (_, i) => `<span style="top:${(i + 1) * H}px">${String(i + 1).padStart(2, '0')}:00</span>`).join('');
+  const grid = $('cal-grid');
+  grid.style.setProperty('--h', H + 'px');
+  grid.innerHTML = head + allday + `<div class="tg-body"><div class="tg-row" style="--n:${days.length}"><div class="tg-hours">${hours}</div>${cols}</div></div>`;
+  const body = grid.querySelector('.tg-body');
+  const nowH = new Date().getHours();
+  body.scrollTop = Math.max(0, (keys.includes(today()) ? nowH - 2 : 7) * H);
+
+  const move = async (t, fields, label) => {
+    await api(vp('page/' + enc(t.path), t.vault), 'PATCH', fields);
+    toast(label);
+    if (S.sel && S.sel.path === t.path) selectTask(S.sel);
+    renderTimeGrid();
+  };
+  const slot = (col, e) => {   // y -> HH:MM, snapped to 15 minutes
+    const m = Math.max(0, Math.min(23 * 60 + 45, Math.round((e.clientY - col.getBoundingClientRect().top) / H * 4) * 15));
+    return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+  };
+  grid.querySelectorAll('[draggable]').forEach(el => {
+    el.addEventListener('dragstart', e => {
+      const r = el.getBoundingClientRect();
+      e.dataTransfer.setData('text/plain', JSON.stringify({ vault: el.dataset.vault, path: el.dataset.path, dy: el.classList.contains('tg-ev') ? e.clientY - r.top : 0 }));
+    });
+    el.addEventListener('click', e => { e.stopPropagation(); selectTask({ vault: el.dataset.vault, path: el.dataset.path }); });
+  });
+  const drop = (el, handler) => {
+    el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drop'); });
+    el.addEventListener('dragleave', () => el.classList.remove('drop'));
+    el.addEventListener('drop', e => {
+      e.preventDefault(); el.classList.remove('drop');
+      const t = JSON.parse(e.dataTransfer.getData('text/plain') || '{}');
+      if (t.path) handler(t, e);
+    });
+  };
+  grid.querySelectorAll('.tg-col').forEach(col => {
+    drop(col, (t, e) => {
+      const at = slot(col, { clientY: e.clientY - (t.dy || 0) });
+      move(t, { due: col.dataset.day, at }, `${col.dataset.day} ${at}`);
+    });
+    // double-click an empty slot: new task at that time
+    col.addEventListener('dblclick', async e => {
+      if (e.target !== col) return;
+      const at = slot(col, e), name = prompt(`new task on ${col.dataset.day} at ${at}`);
+      if (!name || !name.trim()) return;
+      const created = await api(vp('pages'), 'POST', { name: name.trim(), state: 'todo', priority: 'medium', due: col.dataset.day, at });
+      await refresh(true);
+      selectTask({ vault: created.vault, path: created.path });
+    });
+  });
+  grid.querySelectorAll('.tg-allday [data-day]').forEach(cell =>
+    drop(cell, t => move(t, { due: cell.dataset.day, at: '' }, 'due ' + cell.dataset.day)));
 }
 
 // ── detail ──
@@ -533,12 +659,14 @@ function renderDetail() {
     </div>
     <div class="two">
       <div><div class="fl">due</div><input type="date" id="d-due" value="${esc(p.due || '')}"></div>
-      <div><div class="fl">created${p.completed ? ' / done' : ''}</div>
-        <div class="dim" style="padding-top:4px">${esc(p.created)}${p.completed ? ' / ' + esc(p.completed) : ''}</div></div>
+      <div><div class="fl">time</div><input type="time" id="d-at" value="${esc(p.extra?.at || '')}" ${p.due ? '' : 'disabled title="set a due date first"'}></div>
+    </div>
+    <div class="two">
+      <div><div class="fl">duration</div><input type="text" id="d-dur" value="${esc(p.extra?.duration || '')}" placeholder="30m, 1h30m"></div>
+      <div><div class="fl">remind before</div><input type="text" id="d-remind" value="${esc(Array.isArray(p.extra?.remind) ? p.extra.remind.join(', ') : (p.extra?.remind || ''))}" placeholder="10m, 1h, 1d"></div>
     </div>
     <div class="fl">tags</div><input type="text" id="d-tags" value="${esc((p.tags || []).join(', '))}" placeholder="tag, tag">
     ${(p.inline_tags || []).length ? `<div class="dim" style="font-size:11px;margin-top:2px">in text: ${p.inline_tags.map(t => '#' + esc(t)).join(' ')}</div>` : ''}
-    <div class="fl">remind (push)</div><input type="text" id="d-remind" value="${esc(p.extra?.remind || '')}" placeholder="YYYY-MM-DDTHH:MM">
     ${p.vault === S.vault ? `<div class="fl">move to</div>
       <div class="row"><select id="d-move"><option value="">unsorted (root)</option>${cats.filter(c => c !== catOf(p)).map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
       <button id="d-move-btn">move</button></div>` : ''}
@@ -546,18 +674,22 @@ function renderDetail() {
       <input type="text" id="d-note" placeholder="note text..."><button class="primary" id="d-note-btn">add</button></div></div>
     <div class="fl">referenced in</div><div id="refs" class="dim">...</div>
     <div id="notes"></div>
-    <div class="footer-ref">${esc(p.vault)}:${esc(p.path)} · ${esc(p.short_id)}</div>
+    <div class="footer-ref">${esc(p.vault)}:${esc(p.path)} · ${esc(p.short_id)} · created ${esc(p.created)}${p.completed ? ' · done ' + esc(p.completed) : ''}</div>
   </div>`;
   const patch = async fields => {
-    S.page = await api(vp('page/' + enc(p.path), p.vault), 'PATCH', fields);
+    try { S.page = await api(vp('page/' + enc(p.path), p.vault), 'PATCH', fields); }
+    catch (e) { renderDetail(); return; }          // invalid value: the toast says why, the field resets
     await refresh(true);
+    if (S.cat === '*calendar') renderCalendar();
   };
   $('d-name').addEventListener('change', e => e.target.value.trim() && patch({ name: e.target.value.trim() }));
   $('d-state').addEventListener('change', e => patch({ state: e.target.value || null }));
   $('d-pri').addEventListener('change', e => patch({ priority: e.target.value || null }));
   $('d-due').addEventListener('change', e => patch({ due: e.target.value || null }));
   $('d-tags').addEventListener('change', e => patch({ tags: e.target.value.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean) }));
-  $('d-remind').addEventListener('change', e => patch({ extra: { remind: e.target.value.trim() || null } }));
+  $('d-at').addEventListener('change', e => patch({ at: e.target.value }));
+  $('d-dur').addEventListener('change', e => patch({ duration: e.target.value.trim() }));
+  $('d-remind').addEventListener('change', e => patch({ remind: e.target.value.trim() }));
   $('d-move-btn')?.addEventListener('click', () => moveTask($('d-move').value));
   $('d-note').addEventListener('keydown', e => e.key === 'Enter' && addNote());
   $('d-note-btn').addEventListener('click', addNote);

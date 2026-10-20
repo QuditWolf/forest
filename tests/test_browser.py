@@ -268,13 +268,53 @@ def test_tasks_ui(page, server, web):
     web.patch("/api/tasks/page/browser-cat/task-from-browser.md", json={"state": "todo", "due": None})
     web.post("/api/tasks/pages", json={"name": "Cal item", "state": "todo", "due": __import__("datetime").date.today().replace(day=10).isoformat()})
     page.keyboard.press("c"); settle(page, 1200)
+    page.click("[data-cv=month]"); settle(page, 800)
     src = page.locator(".cal-task", has_text="Cal item").first
     target_day = __import__("datetime").date.today().replace(day=12).isoformat()
     src.drag_to(page.locator(f".cal-day[data-day='{target_day}']")); settle(page, 1200)
     assert web.get("/api/tasks/page/cal-item.md").json()["due"] == target_day
-    # tomorrow pane: only tasks due exactly tomorrow
+    # week view: timed tasks at their hour, drag to another slot changes day + time
     import datetime as _dt
     d0 = _dt.date.today()
+    monday = d0 - _dt.timedelta(days=d0.weekday())
+    web.post("/api/tasks/pages", json={"name": "Timed one", "state": "todo", "due": monday.isoformat(), "at": "10:00", "duration": "1h"})
+    web.post("/api/tasks/pages", json={"name": "Overlap two", "state": "todo", "due": monday.isoformat(), "at": "10:30"})
+    page.click("[data-cv=week]"); settle(page, 1000)
+    ev = page.locator(".tg-ev", has_text="Timed one")
+    assert ev.count() == 1 and "10:00" in ev.inner_text()
+    col = page.locator(f".tg-col[data-day='{monday.isoformat()}']")
+    top = page.evaluate("e => parseFloat(e.style.top)", ev.element_handle())
+    assert top == 10 * 44                                              # 44px per hour on desktop
+    w1 = ev.bounding_box()["width"]; w2 = page.locator(".tg-ev", has_text="Overlap two").bounding_box()["width"]
+    assert w1 < col.bounding_box()["width"] * 0.6 and abs(w1 - w2) < 3  # overlapping: side by side
+    target = monday + _dt.timedelta(days=2)
+    tcol = page.locator(f".tg-col[data-day='{target.isoformat()}']")
+    tcol.scroll_into_view_if_needed()
+    page.evaluate("document.querySelector('.tg-body').scrollTop = 8 * 44")
+    settle(page, 200)
+    ev.scroll_into_view_if_needed()
+    box = ev.bounding_box(); cb = tcol.bounding_box()
+    body_top = page.locator(".tg-body").bounding_box()["y"]
+    scroll = page.evaluate("document.querySelector('.tg-body').scrollTop")
+    y = body_top - scroll + 14.25 * 44 + 2                             # 14:15 in the target column
+    page.mouse.move(box["x"] + 5, box["y"] + 2); page.mouse.down()
+    page.mouse.move(cb["x"] + 20, y, steps=8); page.mouse.up(); settle(page, 1200)
+    t = web.get("/api/tasks/page/timed-one.md").json()
+    assert t["due"] == target.isoformat() and t["extra"]["at"] == "14:15", t["extra"]
+    # detail panel: time / duration / remind fields
+    page.locator(".tg-ev", has_text="Timed one").click(); settle(page, 800)
+    assert page.input_value("#d-at") == "14:15" and page.input_value("#d-dur") == "1h"
+    page.fill("#d-remind", "1h, 10m"); page.press("#d-remind", "Tab"); settle(page, 800)
+    assert web.get("/api/tasks/page/timed-one.md").json()["extra"]["remind"] == ["10m", "1h"]
+    page.fill("#d-dur", "nonsense"); page.press("#d-dur", "Tab"); settle(page, 800)
+    assert web.get("/api/tasks/page/timed-one.md").json()["extra"]["duration"] == "1h"   # refused, unchanged
+    page.screenshot(path="/tmp/week.png")
+    page.click("[data-cv=day]"); settle(page, 800)
+    assert page.locator(".tg-col").count() == 1
+    page.click("[data-cv=month]"); settle(page, 500)
+    web.patch("/api/tasks/page/timed-one.md", json={"state": "done"})
+    web.patch("/api/tasks/page/overlap-two.md", json={"state": "done"})
+    # tomorrow pane: only tasks due exactly tomorrow
     web.post("/api/tasks/pages", json={"name": "Due tomorrow", "state": "todo", "due": (d0 + _dt.timedelta(days=1)).isoformat()})
     web.post("/api/tasks/pages", json={"name": "Due in two days", "state": "todo", "due": (d0 + _dt.timedelta(days=2)).isoformat()})
     web.post("/api/tasks/pages", json={"name": "Due today item", "state": "todo", "due": d0.isoformat()})

@@ -64,7 +64,8 @@ knowledge they can look up, half-finished thinking, anything they call private o
   name also works. `page#Heading` addresses one section.
 - **Frontmatter**: `name`, `tags` (list), `created` everywhere. Tasks only: `state`
   (todo | in-progress | blocked | waiting | done), `priority` (high | medium | low), `due`
-  (YYYY-MM-DD), `completed` (auto when done), `remind: 2026-10-01T09:00` (push reminder). Any other
+  (YYYY-MM-DD), `completed` (auto when done), and for scheduling `at: "14:30"` (time on the due
+  date), `duration: 45m`, `remind: [10m, 1h]` (alerts before; omit to use the calendar's defaults). Any other
   keys are preserved, e.g. `source:` (web clips), `ai: readonly`.
 - **Links**: `[[path/to/page]]`, `[[./sibling]]`, `[[../up]]`, `[[tasks:work/report]]` across
   vaults, `[[page|label]]`, `[[page#Heading]]`. Never use markdown `[text](url)` for internal links.
@@ -203,6 +204,12 @@ re-read and redo the edit on the fresh text. Never retry blindly with `write`.
    tags=["alpha-launch"], due=...)` (flat; the category is just the task's area).
 3. Put context in the task description with links back: `[[forest:projects/alpha-launch]]`.
    The project page stays current by itself; don't copy task lists into it by hand.
+
+**Schedule something** ("remind me 15 min before my 3pm call tomorrow")
+`create(name="Call with Asha", vault="tasks", state="todo", due="<tomorrow>", at="15:00", duration="30m",
+remind=["15m"])`, or `update(ref, due=..., at=..., remind=[...])` for an existing task. Use the user's
+local time. Date-only tasks are all-day. `agenda(due_on="tomorrow")` lists them in time order.
+Meetings in the user's Google Calendar are not in forest; use a calendar connector for those.
 
 **Link a note and a task**
 In the note: `append("forest:meetings/2026-10-01", "Follow-up: [[tasks:work/write-report]]")`.

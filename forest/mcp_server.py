@@ -408,18 +408,22 @@ def agenda(vault: Optional[str] = None, state: str = "undone", priority: Optiona
 @tool(RW, write=True)
 def create(name: str, vault: Optional[str] = None, parent: Optional[str] = None, content: str = "",
            state: Optional[str] = None, priority: Optional[str] = None, due: Optional[str] = None,
-           tags: Optional[List[str]] = None, as_folder: bool = False, template: Optional[str] = None) -> str:
+           tags: Optional[List[str]] = None, as_folder: bool = False, template: Optional[str] = None,
+           at: Optional[str] = None, duration: Optional[str] = None, remind: Optional[List[str]] = None) -> str:
     """Create a page. Tasks (anything with state/priority/due) go to the tasks vault - used
     automatically when task fields are given without a vault - at the root or in a category
     (parent = "category" or "category/index.md"; as_folder=True at the root creates a category).
     Knowledge pages go to forest under any parent (a leaf parent becomes a folder-page).
-    template: e.g. "meeting", "project", "task" (see templates). Search first to avoid duplicates."""
-    if not vault and not (parent and ":" in parent) and (state or priority or due):
+    template: e.g. "meeting", "project", "task" (see templates). Search first to avoid duplicates.
+    Scheduling (tasks): due + at="14:30" (time), duration="45m", remind=["10m", "1h"] (alerts before;
+    omitted = the calendar's default reminders)."""
+    if not vault and not (parent and ":" in parent) and (state or priority or due or at):
         tv = [n for n, x in store.VAULTS.items() if x.is_tasks]
         vault = tv[0] if tv else None
     v, par = _vault_for(parent, vault, write=True) if parent else (_check_vault(vault, True), None)
     page = v.create_page(par or None, name, content=content, state=state, priority=priority,
-                         due=_date(due), tags=tags, as_folder=as_folder, template=template)
+                         due=_date(due), tags=tags, as_folder=as_folder, template=template,
+                         extra={k: v for k, v in (("at", at), ("duration", duration), ("remind", remind)) if v})
     return _j({"created": f"{v.name}:{page.path}", "sha": page.sha, "link": f"[[{features.ref_for(v.name, page.path)}]]",
                "url": features.page_url(v.name, page.path)})
 
@@ -566,9 +570,12 @@ def append(ref: str, text: str, vault: Optional[str] = None, timestamp: bool = T
 @tool(RW, write=True)
 def update(ref: str, vault: Optional[str] = None, name: Optional[str] = None, state: Optional[str] = None,
            priority: Optional[str] = None, due: Optional[str] = None, tags: Optional[List[str]] = None,
-           content: Optional[str] = None, expected_sha: Optional[str] = None) -> str:
-    """Update page metadata/body. Only given fields change. state/priority/due exist on tasks only;
-    use "" to clear them. Marking state=done stamps 'completed'. content replaces the whole body."""
+           content: Optional[str] = None, expected_sha: Optional[str] = None, at: Optional[str] = None,
+           duration: Optional[str] = None, remind: Optional[List[str]] = None) -> str:
+    """Update page metadata/body. Only given fields change. state/priority/due/at/duration/remind exist on
+    tasks only; use "" (or [] for remind) to clear them. at = time on the due date (HH:MM), duration
+    e.g. "1h30m", remind = offsets before, e.g. ["10m", "1d"]. Marking state=done stamps 'completed'.
+    content replaces the whole body."""
     v, p = _vault_for(ref, vault, write=True)
     fields: dict = {}
     if name is not None:
@@ -583,6 +590,9 @@ def update(ref: str, vault: Optional[str] = None, name: Optional[str] = None, st
         fields["tags"] = tags
     if content is not None:
         fields["content"] = content
+    sched = {k: (val or None) for k, val in (("at", at), ("duration", duration), ("remind", remind)) if val is not None}
+    if sched:
+        fields["extra"] = sched
     page = v.update_page(p, expected_sha=expected_sha, **fields)
     return _j(_page_dict(page, content=False))
 

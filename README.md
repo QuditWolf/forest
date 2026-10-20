@@ -23,7 +23,8 @@ Interfaces:
   time for tasks); install it as an app from the browser menu.
 - **Web UI** (`/`) - opens on an index of the vault (folders as columns, recent edits, continue where you left off, `H`), tree, markdown + mermaid, `[[links]]` across vaults, tags, history,
   local graph, outline, journal, templates, attachments, autocomplete.
-- **Tasks UI** (`/tasks`) - categories, agenda, calendar with drag to reschedule, notes with
+- **Tasks UI** (`/tasks`) - categories, agenda (today, tomorrow, 7 days), calendar (day / week by
+  the hour, month) with drag to reschedule, task times (`at`, `duration`, `remind: [10m, 1h]`), notes with
   `[[` links, "referenced in" (which notes point at a task).
 - **Admin** (`/admin`) - read/write tokens, OAuth clients, audit log, backup/restore,
   clipper, reminders.

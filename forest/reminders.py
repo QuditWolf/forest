@@ -144,27 +144,56 @@ def _parse_remind(val) -> Optional[datetime]:
     return dt if dt.tzinfo else dt.replace(tzinfo=TZ)
 
 
+def fire_times(p) -> list:
+    """When `remind:` should fire for a page: an absolute time, or offsets before the task's start
+    (due + at; date-only tasks start at 09:00)."""
+    from .features import task_start
+    val = p.extra.get("remind")
+    if not val:
+        return []
+    if not isinstance(val, list):
+        w = _parse_remind(val)
+        return [w] if w else []
+    start = task_start(p)
+    if not start:
+        return []
+    out = []
+    for off in val:
+        try:
+            out.append(start - timedelta(minutes=store.parse_duration(off)))
+        except ValueError:
+            pass
+    return out
+
+
 def due_reminders() -> None:
     from .features import now, page_url
     sent = _state()["sent"]
     t = now()
     for v in store.VAULTS.values():
         for p in v.all_pages():
-            val = p.extra.get("remind")
-            if not val or p.state == "done":
+            if p.state == "done":
                 continue
-            when = _parse_remind(val)
             key = f"{v.name}:{p.path}"
-            if not when or when > t or sent.get(key) == str(val):
-                continue
-            msg = p.name + (f"\ndue {p.due}" if p.due else "") + (f"\n{p.state}" if p.state else "")
-            send(f"reminder: {p.name}", msg, click=page_url(v.name, p.path), tags=["bell"], priority=4,
-                 actions=[{"action": "http", "label": "done", "url": action_url(v.name, p.path, "done"),
-                           "method": "POST", "clear": True},
-                          {"action": "http", "label": "snooze 1d", "url": action_url(v.name, p.path, "snooze"),
-                           "method": "POST", "clear": True}])
-            _state_update(lambda s, k=key, val=str(val): s["sent"].__setitem__(k, val))
-            auth.audit("remind.sent", vault=v.name, path=p.path)
+            done_before = set(sent.get(key + "#all") or [])
+            # due now (never more than a day late, e.g. server was down) and not sent yet;
+            # several at once (task created late) -> one push, all marked sent
+            pending = sorted(w.isoformat(timespec="minutes") for w in fire_times(p)
+                             if w <= t and t - w <= timedelta(days=1))
+            pending = [x for x in pending if x not in done_before and sent.get(key) != x]
+            if pending:
+                msg = p.name + (f"\n{p.due}" + (f" {p.extra['at']}" if p.extra.get("at") else "") if p.due else "") \
+                    + (f"\n{p.state}" if p.state else "")
+                send(f"reminder: {p.name}", msg, click=page_url(v.name, p.path), tags=["bell"], priority=4,
+                     actions=[{"action": "http", "label": "done", "url": action_url(v.name, p.path, "done"),
+                               "method": "POST", "clear": True}]
+                     # snooze rewrites `remind` to a one-off time, so only offer it for one-off reminders
+                     + ([] if isinstance(p.extra.get("remind"), list) else
+                        [{"action": "http", "label": "snooze 1d", "url": action_url(v.name, p.path, "snooze"),
+                          "method": "POST", "clear": True}]))
+                _state_update(lambda s, k=key, st=pending: s["sent"].__setitem__(
+                    k + "#all", ((s["sent"].get(k + "#all") or []) + st)[-20:]))
+                auth.audit("remind.sent", vault=v.name, path=p.path)
 
 
 def _due_now(spec: str, t: datetime, key: str, weekly: bool = False) -> bool:

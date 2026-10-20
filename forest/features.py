@@ -30,6 +30,18 @@ def today() -> date:
     return now().date()
 
 
+def task_start(p) -> Optional[datetime]:
+    """Start of a task: due date + `at` (date-only tasks: 09:00), in the server timezone."""
+    if not p.due:
+        return None
+    at = (p.extra or {}).get("at") if hasattr(p, "extra") else p.get("at")
+    try:
+        h, m = map(int, store.parse_time(at).split(":")) if at not in (None, "") else (9, 0)
+    except ValueError:
+        h, m = 9, 0
+    return datetime(p.due.year, p.due.month, p.due.day, h, m, tzinfo=TZ)
+
+
 def _loc(spec: str) -> Tuple[store.Vault, str]:
     """'forest:journal' → (vault, 'journal')."""
     v, folder = store.split_ref(spec)
@@ -865,14 +877,27 @@ def calendar_ics(vaults: Optional[str] = None) -> str:
         if not p.get("due"):
             continue
         d = date.fromisoformat(p["due"])
+        if p.get("at"):
+            h, m = map(int, p["at"].split(":"))
+            start = datetime(d.year, d.month, d.day, h, m, tzinfo=TZ).astimezone(ZoneInfo("UTC"))
+            mins = store.parse_duration(p["duration"]) if p.get("duration") else 30
+            when = [f"DTSTART:{start.strftime('%Y%m%dT%H%M%SZ')}",
+                    f"DTEND:{(start + timedelta(minutes=mins)).strftime('%Y%m%dT%H%M%SZ')}"]
+        else:
+            when = [f"DTSTART;VALUE=DATE:{d.strftime('%Y%m%d')}",
+                    f"DTEND;VALUE=DATE:{(d + timedelta(days=1)).strftime('%Y%m%d')}"]
+        alarms = []
+        if isinstance(p.get("remind"), list) and p["state"] != "done":
+            for off in p["remind"]:
+                alarms += ["BEGIN:VALARM", "ACTION:DISPLAY", f"DESCRIPTION:{esc(p['name'])}",
+                           f"TRIGGER:-PT{store.parse_duration(off)}M", "END:VALARM"]
         lines += ["BEGIN:VEVENT", f"UID:{esc(p['vault'] + ':' + p['path'])}@forest", f"DTSTAMP:{stamp}",
-                  f"DTSTART;VALUE=DATE:{d.strftime('%Y%m%d')}",
-                  f"DTEND;VALUE=DATE:{(d + timedelta(days=1)).strftime('%Y%m%d')}",
+                  *when,
                   f"SUMMARY:{esc(icons.get(p['state'], '') + ' ' + p['name'])}",
                   f"DESCRIPTION:{esc(p['vault'] + ':' + p['path'] + ' · ' + (p.get('priority') or ''))}",
                   f"URL:{page_url(p['vault'], p['path'])}",
                   "STATUS:" + ("COMPLETED" if p["state"] == "done" else "CONFIRMED"),
-                  "END:VEVENT"]
+                  *alarms, "END:VEVENT"]
     lines.append("END:VCALENDAR")
     return "\r\n".join(lines) + "\r\n"
 

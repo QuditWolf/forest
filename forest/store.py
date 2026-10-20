@@ -132,7 +132,98 @@ def _validate_meta(state: Optional[str], priority: Optional[str]) -> None:
         raise ValueError(f"Invalid priority {priority!r}. Choose: {VALID_PRIORITIES}")
 
 
-_TASK_FIELDS = ("state", "priority", "due", "completed")
+_TASK_FIELDS = ("state", "priority", "due", "completed", "at", "duration")
+
+# ── Schedule fields (tasks): at (time on the due date), duration, remind (offsets before) ──
+_DUR_RX = _re.compile(r"^(?:(\d+)\s*w)?\s*(?:(\d+)\s*d)?\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m(?:in)?)?$")
+
+
+def parse_duration(val) -> int:
+    """'1h30m' / '90m' / '90' / '1d' / '2w' -> minutes."""
+    if isinstance(val, bool):
+        raise ValueError(f"invalid duration {val!r}")
+    if isinstance(val, int):
+        return val
+    s = str(val).strip().lower().replace(" ", "")
+    if s.isdigit():
+        return int(s)
+    m = _DUR_RX.match(s)
+    if not s or not m or not any(m.groups()):
+        raise ValueError(f"invalid duration {val!r} (use e.g. 30m, 1h30m, 1d, 1w)")
+    w, d, h, mi = (int(x or 0) for x in m.groups())
+    return ((w * 7 + d) * 24 + h) * 60 + mi
+
+
+def fmt_duration(minutes: int) -> str:
+    if minutes and minutes % (7 * 1440) == 0:
+        return f"{minutes // (7 * 1440)}w"
+    if minutes and minutes % 1440 == 0:
+        return f"{minutes // 1440}d"
+    h, m = divmod(int(minutes), 60)
+    return (f"{h}h" if h else "") + (f"{m}m" if m or not h else "")
+
+
+def parse_time(val) -> str:
+    """'9:00' / '14:30' / '9' / '2pm' / '2:30pm' (and YAML's sexagesimal 840) -> 'HH:MM'."""
+    if isinstance(val, int) and not isinstance(val, bool):     # unquoted 14:00 in YAML 1.1 = 840
+        h, m = divmod(val, 60)
+    else:
+        s = str(val).strip().lower().replace(" ", "")
+        mt = _re.match(r"^(\d{1,2})(?::(\d{2}))?(am|pm)?$", s)
+        if not mt:
+            raise ValueError(f"invalid time {val!r} (use HH:MM, e.g. 14:30)")
+        h, m = int(mt.group(1)), int(mt.group(2) or 0)
+        if mt.group(3):
+            if not 1 <= h <= 12:
+                raise ValueError(f"invalid time {val!r}")
+            h = h % 12 + (12 if mt.group(3) == "pm" else 0)
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        raise ValueError(f"invalid time {val!r}")
+    return f"{h:02d}:{m:02d}"
+
+
+def _is_abs_remind(x) -> bool:
+    return isinstance(x, (datetime, date)) or bool(_re.match(r"^\d{4}-\d{2}-\d{2}[T ]\d", str(x).strip()))
+
+
+def norm_remind(val):
+    """remind: offsets before the task ('10m', '1h', '1d'), or an absolute 'YYYY-MM-DDTHH:MM' (one-off push).
+    Returns a list of offsets (sorted, deduplicated), or the absolute value unchanged."""
+    items = val if isinstance(val, list) else [x for x in _re.split(r"[,\s]+", str(val).strip()) if x] \
+        if not _is_abs_remind(val) else [val]
+    if len(items) == 1 and _is_abs_remind(items[0]):
+        return items[0] if not isinstance(items[0], datetime) else items[0].strftime("%Y-%m-%dT%H:%M")
+    mins = sorted({parse_duration(x) for x in items})
+    if len(mins) > 5:
+        raise ValueError("at most 5 reminders per task")
+    if any(m > 4 * 7 * 1440 for m in mins):
+        raise ValueError("reminders can be at most 4 weeks before")
+    return [fmt_duration(m) for m in mins]
+
+
+def _soft_schedule(extra: dict) -> dict:
+    """Read side: normalise what can be (hand-edited files), leave anything invalid as written."""
+    for k in ("at", "duration", "remind"):
+        if k in extra:
+            try:
+                norm_schedule(sub := {k: extra[k]})
+                if k in sub:
+                    extra[k] = sub[k]
+            except (ValueError, TypeError):
+                pass
+    return extra
+
+
+def norm_schedule(meta: dict) -> dict:
+    """Validate + normalise at/duration/remind in a frontmatter dict (in place). Empty values remove the key."""
+    for k, fn in (("at", parse_time), ("duration", lambda v: fmt_duration(parse_duration(v))), ("remind", norm_remind)):
+        if k not in meta:
+            continue
+        if meta[k] in (None, "", []):
+            meta.pop(k)
+        else:
+            meta[k] = fn(meta[k])
+    return meta
 
 # Attachments: binary documents get a cached "<file>.txt" sidecar with extracted text (searchable);
 # text-like files are searched directly.
@@ -166,6 +257,7 @@ class Vault:
     def _check_task_fields(self, meta: dict) -> None:
         if self.is_tasks:
             return
+        meta = {**(meta.get("extra") or {}), **meta}
         used = [k for k in _TASK_FIELDS if meta.get(k) not in (None, "")]
         if used:
             tv = TASK_VAULTS[0] if TASK_VAULTS else "tasks"
@@ -358,7 +450,7 @@ class Vault:
             completed=_parse_date(meta.get("completed")),
             tags=_norm_tags(meta.get("tags")),
             inline_tags=inline_tags(content),
-            extra={k: v for k, v in meta.items() if k not in _KNOWN_META},
+            extra=_soft_schedule({k: v for k, v in meta.items() if k not in _KNOWN_META}),
             content=content,
             sha=_sha(raw),
         )
@@ -512,7 +604,8 @@ class Vault:
             t_meta.pop("due", None)
             extra = {**{k: v for k, v in t_meta.items() if k not in _KNOWN_META}, **(extra or {})}
         _validate_meta(state, priority)
-        self._check_task_fields({"state": state, "priority": priority, "due": due})
+        extra = norm_schedule(dict(extra or {}))
+        self._check_task_fields({"state": state, "priority": priority, "due": due, "extra": extra})
         self._check_flat(parent_path, as_folder)
         self._guard(parent_path)
         slug = slugify(name)
@@ -560,7 +653,11 @@ class Vault:
     def update_page(self, path: str, expected_sha: Optional[str] = None, **fields) -> Page:
         """Update fields (name, content, state, priority, due, tags, extra) and write back."""
         _validate_meta(fields.get("state"), fields.get("priority"))
-        self._check_task_fields(fields)
+        if fields.get("extra"):
+            ex = fields["extra"]
+            clear = {k: None for k in ("at", "duration", "remind") if k in ex and ex[k] in (None, "", [])}
+            fields["extra"] = {**norm_schedule({k: v for k, v in ex.items() if k not in clear}), **clear}
+        self._check_task_fields({**fields, "extra": {k: v for k, v in (fields.get("extra") or {}).items() if v is not None}})
 
         def op():
             page = self.get_page(path)
@@ -599,6 +696,10 @@ class Vault:
         except Exception as e:
             raise ValueError(f"Invalid frontmatter: {e}")
         _validate_meta(post.metadata.get("state"), post.metadata.get("priority"))
+        before = dict(post.metadata)
+        norm_schedule(post.metadata)
+        if post.metadata != before:             # store the normalised form (e.g. at: 840 -> "14:00")
+            text = frontmatter.dumps(post) + ("\n" if text.endswith("\n") else "")
         self._check_task_fields(post.metadata)
         if self.is_tasks and path.strip("/").count("/") > 1:   # root task, category/task.md or category/index.md
             raise ValueError(FLAT_MSG)
@@ -1070,7 +1171,9 @@ def _summary(p: Page) -> dict:
             "tags": sorted(set(p.tags) | set(p.inline_tags)), "short_id": p.short_id,
             "is_folder": p.is_folder, "parent_path": p.parent_path,
             "created": p.created.isoformat(),
-            "completed": p.completed.isoformat() if p.completed else None}
+            "completed": p.completed.isoformat() if p.completed else None,
+            "at": p.extra.get("at"), "duration": p.extra.get("duration"),
+            "remind": p.extra.get("remind")}
 
 
 def task_vaults(vaults: Optional[str] = None) -> Optional[str]:
@@ -1134,7 +1237,8 @@ def agenda(
                     if c is not None and (p.due is None or p.due > c):
                         continue
             out.append(_summary(p))
-    out.sort(key=lambda s: (s["due"] or "9999-12-31", _PRI_RANK.get(s["priority"], 3), s["name"].lower()))
+    out.sort(key=lambda s: (s["due"] or "9999-12-31", s["at"] or "99:99", _PRI_RANK.get(s["priority"], 3),
+                            s["name"].lower()))
     return out
 
 
