@@ -155,7 +155,7 @@ def has_devices() -> bool:
 def send_all(title: str, body: str, url: Optional[str] = None, tag: Optional[str] = None,
              actions: Optional[list] = None, urgent: bool = False, only: Optional[str] = None) -> int:
     """Push to every device (or `only` one id). Expired subscriptions are dropped. Returns deliveries."""
-    msg = {"title": title, "body": body, "url": url or "/", "tag": tag, "actions": actions or []}
+    msg = {"title": title, "body": body, "url": url or "/", "tag": tag, "actions": actions or [], "urgent": urgent}
     raw = json.dumps(msg, ensure_ascii=False).encode()
     if len(raw) > MAX_PAYLOAD:
         msg["body"] = body[: max(0, len(body) - (len(raw) - MAX_PAYLOAD)) - 3] + "..."

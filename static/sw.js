@@ -1,6 +1,6 @@
 // forest service worker: makes the app installable, starts fast, and says "offline" instead of a browser error.
 // Never caches API data: only the static libraries and the (data-free) page shells.
-const VERSION = 'forest-v4';
+const VERSION = 'forest-v5';
 const SHELLS = ['/', '/tasks', '/admin', '/clip'];
 const SKIP = ['/api/', '/mcp', '/git/', '/auth/', '/oauth/', '/upload/', '/.well-known/', '/healthz', '/sw.js'];
 
@@ -60,6 +60,10 @@ self.addEventListener('push', e => {
     badge: '/icons/badge-96.png',
     tag: m.tag || undefined,            // same tag replaces the older one (e.g. today's digest)
     renotify: !!m.tag,
+    // reminders: buzz, and on desktop stay up until dismissed; digests arrive quietly
+    requireInteraction: !!m.urgent,
+    vibrate: m.urgent ? [200, 100, 200] : undefined,
+    silent: false,
     data: { url, actions: m.actions || [] },
     actions: (m.actions || []).slice(0, 2).map(a => ({ action: a.action, title: a.title })),
   }));

@@ -163,7 +163,7 @@ def test_push_digests_and_reminders(server, web, agent, push):
     web.post("/api/admin/ntfy-test", params={"kind": "reminders"})
     req = [x for x in push.reqs if x["path"] == "/sub/phone2"][-1]
     m = phone.decrypt(req["body"])
-    assert m["title"] == "reminder: Standup call" and req["headers"]["Urgency"] == "high"
+    assert m["title"] == "reminder: Standup call" and req["headers"]["Urgency"] == "high" and m["urgent"] is True
     assert "/tasks#tasks/standup-call.md" in m["url"]
     done = [a for a in m["actions"] if a["title"] == "done"][0]
     assert httpx.post(done["url"]).json()["ok"]
