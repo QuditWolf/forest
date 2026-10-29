@@ -135,7 +135,7 @@ async def logout(request: Request):
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
 PUBLIC_PREFIXES = ("/auth/", "/.well-known/", "/oauth/", "/lib/", "/healthz", "/favicon",
-                   "/api/remind/action/", "/manifest.webmanifest", "/tasks.webmanifest", "/sw.js", "/icon.svg", "/tasks-icon.svg", "/upload/", "/icons/", "/privacy")
+                   "/api/remind/action/", "/manifest.webmanifest", "/tasks.webmanifest", "/sw.js", "/icon.svg", "/tasks-icon.svg", "/upload/", "/icons/", "/privacy", "/install")
 TOKEN_PREFIXES = ("/api/", "/mcp", "/git/")
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 LEGACY_API = {"tree", "children", "page", "pages", "backlinks", "shadow"}
@@ -1204,6 +1204,98 @@ including the Limited Use requirements.</li>
 or by disconnecting in forest; the stored token is then deleted. The "forest" calendar can be deleted in Google Calendar.</p>
 <h2>Contact</h2>
 <p>{contact}</p>
+</body></html>"""
+
+
+# ── Install for Claude Code (public: no secrets, auth happens later via OAuth) ─
+
+INSTALL_SH = r"""#!/usr/bin/env bash
+# forest: install the Claude Code skill and MCP server.
+#   curl -fsSL __BASE__/install.sh | bash                  # all projects (user scope)
+#   curl -fsSL __BASE__/install.sh | bash -s -- --project  # this project only
+set -euo pipefail
+BASE="${FOREST_URL:-__BASE__}"
+SCOPE=user
+[ "${1:-}" = "--project" ] && SCOPE=project
+
+command -v claude >/dev/null || { echo "forest: 'claude' CLI not found (install Claude Code first)" >&2; exit 1; }
+command -v curl >/dev/null || { echo "forest: curl not found" >&2; exit 1; }
+
+if [ "$SCOPE" = project ]; then DIR=".claude/skills/forest"; else DIR="$HOME/.claude/skills/forest"; fi
+if [ -L "$DIR" ]; then
+  echo "skill: $DIR is a symlink ($(readlink "$DIR")), left as is"
+else
+  mkdir -p "$DIR"
+  curl -fsSL "$BASE/install/SKILL.md" -o "$DIR/SKILL.md.tmp" && mv "$DIR/SKILL.md.tmp" "$DIR/SKILL.md"
+  echo "skill: $DIR/SKILL.md"
+fi
+
+if claude mcp get forest 2>/dev/null | grep -qF "$BASE/mcp"; then
+  echo "mcp: forest already configured"
+else
+  claude mcp remove forest -s "$SCOPE" >/dev/null 2>&1 || true
+  claude mcp add --scope "$SCOPE" --transport http forest "$BASE/mcp"
+fi
+
+echo
+echo "Done. In Claude Code run /mcp, pick 'forest', choose Authenticate and log in."
+"""
+
+
+@app.get("/install.sh", include_in_schema=False)
+def install_sh(request: Request):
+    return Response(INSTALL_SH.replace("__BASE__", oauth.base_url(request)),
+                    media_type="text/x-shellscript; charset=utf-8")
+
+
+@app.get("/install/SKILL.md", include_in_schema=False)
+def install_skill():
+    """Same as /api/skill, without auth, so a fresh machine can fetch it."""
+    return skill()
+
+
+@app.get("/install", include_in_schema=False, response_class=HTMLResponse)
+def install_page(request: Request):
+    """Install page for people and for agents (Claude Code can be pointed at this URL)."""
+    b = html.escape(oauth.base_url(request))
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>forest - install for Claude Code</title>
+<link rel="stylesheet" href="/lib/theme.css"><style>body{{max-width:680px;margin:0 auto;padding:24px 16px;line-height:1.55}}
+h1{{font-size:16px;margin-bottom:12px}}h2{{font-size:13px;margin:18px 0 4px}}p,li{{margin:4px 0}}ol,ul{{padding-left:18px}}
+pre{{background:var(--sidebar-bg);border:1px solid var(--border);padding:8px 10px;overflow-x:auto;white-space:pre-wrap;word-break:break-all}}</style></head><body>
+<h1>forest: install for Claude Code</h1>
+<p>Adds the forest MCP server ({b}/mcp) and the forest skill to Claude Code, so it can read and write
+your notes and tasks from any project.</p>
+
+<h2>One line</h2>
+<pre>curl -fsSL {b}/install.sh | bash</pre>
+<p>Only for the current project: <code>curl -fsSL {b}/install.sh | bash -s -- --project</code></p>
+<p>Or tell Claude Code: <code>install forest from {b}/install</code></p>
+
+<h2>Instructions for AI agents (Claude Code)</h2>
+<p>If a user pointed you here, install forest for them:</p>
+<ol>
+<li>Run <code>curl -fsSL {b}/install.sh | bash</code> (add <code>-s -- --project</code> if the user wants it for this project only).
+It writes <code>~/.claude/skills/forest/SKILL.md</code> and runs
+<code>claude mcp add --scope user --transport http forest {b}/mcp</code>. It is safe to run again.</li>
+<li>If you cannot pipe to bash, do the same by hand:
+<pre>mkdir -p ~/.claude/skills/forest
+curl -fsSL {b}/install/SKILL.md -o ~/.claude/skills/forest/SKILL.md
+claude mcp add --scope user --transport http forest {b}/mcp</pre></li>
+<li>You cannot log in for the user. Tell them to run <code>/mcp</code> in Claude Code, pick <code>forest</code>,
+choose Authenticate and log in to forest in the browser that opens. Restart Claude Code if the
+forest tools or the <code>/forest</code> skill do not show up.</li>
+<li>Check with <code>claude mcp get forest</code>: it should say Connected after login.</li>
+</ol>
+
+<h2>Without a browser (token)</h2>
+<p>Create a token in <a href="/admin">admin</a> (write scope), then:</p>
+<pre>claude mcp remove forest -s user
+claude mcp add --scope user --transport http forest {b}/mcp -H "Authorization: Bearer &lt;token&gt;"</pre>
+
+<h2>Remove</h2>
+<pre>claude mcp remove forest -s user
+rm -r ~/.claude/skills/forest</pre>
 </body></html>"""
 
 

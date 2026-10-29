@@ -1,5 +1,6 @@
 """Web login, tokens, access control, attack attempts, audit log."""
 
+import subprocess
 import httpx
 import pytest
 
@@ -167,3 +168,30 @@ def test_privacy_page_is_public(server):
     r = httpx.get(server.base + "/privacy", follow_redirects=False)      # no login: Google must be able to read it
     assert r.status_code == 200 and "privacy policy" in r.text and "Limited Use" in r.text
     assert "<script" not in r.text
+
+
+def test_install_page_script_and_skill_are_public(server):
+    r = httpx.get(server.base + "/install", follow_redirects=False)      # no login: a fresh machine reads it
+    assert r.status_code == 200 and f"{server.base}/install.sh | bash" in r.text and "/mcp" in r.text
+    assert "<script" not in r.text
+    s = httpx.get(server.base + "/install.sh", follow_redirects=False)
+    assert s.status_code == 200 and s.text.startswith("#!/usr/bin/env bash")
+    assert f'BASE="${{FOREST_URL:-{server.base}}}"' in s.text and "__BASE__" not in s.text
+    k = httpx.get(server.base + "/install/SKILL.md", follow_redirects=False)
+    assert k.status_code == 200 and k.text.startswith("---\nname: forest")
+    assert httpx.get(server.base + "/api/skill", follow_redirects=False).status_code == 401   # API stays token-only
+
+
+def test_install_script_installs_skill_and_mcp(server, tmp_path):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    log = tmp_path / "claude.log"
+    fake = bindir / "claude"                                              # stand-in for the claude CLI
+    fake.write_text(f'#!/bin/sh\necho "$@" >> {log}\n[ "$2" = get ] && exit 1\nexit 0\n')
+    fake.chmod(0o755)
+    script = httpx.get(server.base + "/install.sh").text
+    env = {"HOME": str(tmp_path), "PATH": f"{bindir}:/usr/bin:/bin"}
+    r = subprocess.run(["bash", "-s"], input=script, env=env, capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    assert (tmp_path / ".claude/skills/forest/SKILL.md").read_text().startswith("---\nname: forest")
+    assert f"mcp add --scope user --transport http forest {server.base}/mcp" in log.read_text()

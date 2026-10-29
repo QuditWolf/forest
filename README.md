@@ -29,6 +29,8 @@ Interfaces:
 - **Admin** (`/admin`) - read/write tokens, OAuth clients, audit log, backup/restore,
   clipper, reminders.
 - **MCP** (`/mcp`) - 38 tools for AI assistants and agents (Streamable HTTP). Agent guide: `forest/skill/SKILL.md`.
+- **Install for Claude Code** (`/install`, public) - `curl -fsSL https://<host>/install.sh | bash` adds the MCP
+  server and the skill; or point Claude Code at `https://<host>/install` and it installs itself.
 - **REST API** (`/api`, docs at `/api/docs`) and **git sync** (`/git/<vault>.git`).
 - **CLI + TUI** clients that talk to the server over HTTPS.
 
