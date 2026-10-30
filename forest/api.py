@@ -1230,7 +1230,16 @@ else
   echo "skill: $DIR/SKILL.md"
 fi
 
-if claude mcp get forest 2>/dev/null | grep -qF "$BASE/mcp"; then
+LIST=$(claude mcp list 2>/dev/null || true)   # captured: grep -q in a pipe trips pipefail
+LOCAL=$(claude mcp get forest 2>/dev/null || true)
+if grep -qi "^claude\.ai forest: $BASE/mcp" <<<"$LIST"; then
+  # The user's claude.ai account already has the Forest connector: use that, no local copy.
+  echo "mcp: using the claude.ai Forest connector from your Claude account"
+  if grep -qF "$BASE/mcp" <<<"$LOCAL"; then
+    claude mcp remove forest -s "$SCOPE" >/dev/null 2>&1 && echo "mcp: removed the duplicate local 'forest' entry"
+  fi
+  echo; echo "Done. Restart Claude Code to load the skill."; exit 0
+elif grep -qF "$BASE/mcp" <<<"$LOCAL"; then
   echo "mcp: forest already configured"
 else
   claude mcp remove forest -s "$SCOPE" >/dev/null 2>&1 || true
@@ -1271,18 +1280,23 @@ your notes and tasks from any project.</p>
 <pre>curl -fsSL {b}/install.sh | bash</pre>
 <p>Only for the current project: <code>curl -fsSL {b}/install.sh | bash -s -- --project</code></p>
 <p>Or tell Claude Code: <code>install forest from {b}/install</code></p>
+<p>If forest is a connector on your claude.ai account, Claude Code signed in to that account already has the
+forest tools; the installer then only adds the skill.</p>
 
 <h2>Instructions for AI agents (Claude Code)</h2>
 <p>If a user pointed you here, install forest for them:</p>
 <ol>
 <li>Run <code>curl -fsSL {b}/install.sh | bash</code> (add <code>-s -- --project</code> if the user wants it for this project only).
-It writes <code>~/.claude/skills/forest/SKILL.md</code> and runs
+It writes <code>~/.claude/skills/forest/SKILL.md</code>. If <code>claude mcp list</code> already shows a
+<code>claude.ai Forest</code> connector (the user added forest on claude.ai and Claude Code is signed in to that account),
+it uses that and adds no local server. Otherwise it runs
 <code>claude mcp add --scope user --transport http forest {b}/mcp</code>. It is safe to run again.</li>
 <li>If you cannot pipe to bash, do the same by hand:
 <pre>mkdir -p ~/.claude/skills/forest
 curl -fsSL {b}/install/SKILL.md -o ~/.claude/skills/forest/SKILL.md
 claude mcp add --scope user --transport http forest {b}/mcp</pre></li>
-<li>You cannot log in for the user. Tell them to run <code>/mcp</code> in Claude Code, pick <code>forest</code>,
+<li>With the claude.ai connector there is nothing more to do: tell the user to restart Claude Code.
+Otherwise you cannot log in for the user. Tell them to run <code>/mcp</code> in Claude Code, pick <code>forest</code>,
 choose Authenticate and log in to forest in the browser that opens. Restart Claude Code if the
 forest tools or the <code>/forest</code> skill do not show up.</li>
 <li>Check with <code>claude mcp get forest</code>: it should say Connected after login.</li>

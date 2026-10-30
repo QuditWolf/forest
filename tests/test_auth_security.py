@@ -195,3 +195,22 @@ def test_install_script_installs_skill_and_mcp(server, tmp_path):
     assert r.returncode == 0, r.stderr
     assert (tmp_path / ".claude/skills/forest/SKILL.md").read_text().startswith("---\nname: forest")
     assert f"mcp add --scope user --transport http forest {server.base}/mcp" in log.read_text()
+
+
+def test_install_script_uses_claude_ai_connector(server, tmp_path):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    log = tmp_path / "claude.log"
+    fake = bindir / "claude"                         # account has the connector and a stale local copy
+    fake.write_text(f'#!/bin/sh\necho "$@" >> {log}\n'
+                    f'[ "$2" = list ] && echo "claude.ai Forest: {server.base}/mcp - Connected"\n'
+                    f'[ "$2" = get ] && echo "  URL: {server.base}/mcp"\nexit 0\n')
+    fake.chmod(0o755)
+    script = httpx.get(server.base + "/install.sh").text
+    env = {"HOME": str(tmp_path), "PATH": f"{bindir}:/usr/bin:/bin"}
+    r = subprocess.run(["bash", "-s"], input=script, env=env, capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    assert "claude.ai Forest connector" in r.stdout
+    assert (tmp_path / ".claude/skills/forest/SKILL.md").exists()
+    calls = log.read_text()
+    assert "mcp add" not in calls and "mcp remove forest -s user" in calls

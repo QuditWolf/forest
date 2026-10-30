@@ -1,13 +1,16 @@
 ---
 name: forest
-description: The user's second brain - Forest knowledge base and task planner (MCP server "forest"). Use whenever a conversation touches the user's own projects, work, setup, people, plans, decisions, ideas or past notes (to recall context and, in auto mode, save what is worth keeping), and whenever they mention notes, pages, journal, tasks, todos, agenda, today, reviews, inbox, capture, "remember this" or "what did I write about". Also handles the chat keywords `forest: off|recall|auto`.
+description: The user's second brain - Forest knowledge base and task planner (forest MCP tools: the claude.ai "Forest" connector or a local "forest" server). Use whenever a conversation touches the user's own projects, work, setup, people, plans, decisions, ideas or past notes (to recall context and, in auto mode, save what is worth keeping), and whenever they mention notes, pages, journal, tasks, todos, agenda, today, reviews, inbox, capture, "remember this" or "what did I write about". Also handles the chat keywords `forest: off|recall|auto`.
 ---
 
 # Forest: agent guide
 
 Forest is the user's personal knowledge base and task planner. Everything is plain Markdown
 with YAML frontmatter, stored in git-versioned **vaults** on the user's server and reached
-through the `forest` MCP tools (or the REST API at `/api`).
+through the forest MCP tools (or the REST API at `/api`). The tools are the same whether they come
+from the claude.ai "Forest" connector or a local `forest` server (in Claude Code: `mcp__claude_ai_Forest__*`
+or `mcp__forest__*`); use whichever is connected. If no forest tools are available, tell the user to
+add the connector on claude.ai or run `curl -fsSL https://<their forest host>/install.sh | bash`, then log in with `/mcp`.
 
 ## Proactive mode (read this first)
 
